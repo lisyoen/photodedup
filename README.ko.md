@@ -1,0 +1,77 @@
+# PhotoDedup
+
+PhotoDedup은 중복 사진과 시각적으로 유사한 사진을 찾아 정리하는 데스크톱 앱입니다. 로컬 폴더를 스캔하고 perceptual hash로 후보 그룹을 만든 뒤, 불필요한 파일을 보관 폴더나 시스템 휴지통으로 이동할 수 있게 도와줍니다.
+
+앱은 로컬 우선 구조입니다. 사진은 사용자의 컴퓨터에 그대로 남고, 스캔 데이터는 로컬 SQLite 데이터베이스에 저장됩니다. PhotoDedup은 이미지나 스캔 결과를 원격 서비스로 업로드하지 않습니다.
+
+## 주요 기능
+
+- Perceptual hash 기반 중복 및 유사 사진 그룹핑
+- 플랫폼 이미지 라이브러리가 지원되는 환경에서 HEIC/HEIF 지원
+- 해상도, 파일 크기, 선명도, 메타데이터를 활용한 보관 추천
+- 선택한 파일을 보관 폴더 또는 시스템 휴지통으로 이동
+- 보관 폴더로 이동한 파일 복원
+- 한국어, 영어, 일본어 UI 라벨
+- Electron 데스크톱 shell과 로컬 Python FastAPI sidecar 구조
+
+## 설치
+
+GitHub Releases에서 최신 바이너리를 다운로드하세요.
+
+- Windows: 설치본(`.exe`) 또는 portable 빌드
+- Linux: AppImage
+
+릴리스 페이지:
+
+https://github.com/lisyoen/photodedup/releases
+
+## 개발 셋업
+
+PhotoDedup은 세 부분으로 구성됩니다.
+
+- `renderer/`: React + Vite UI
+- `shell/`: Electron main process 및 preload 스크립트
+- `engine/`: Python FastAPI sidecar 및 사진 처리 엔진
+
+renderer 설치 및 빌드:
+
+```bash
+cd renderer
+npm ci
+npm run build
+```
+
+Electron shell 설치 및 빌드:
+
+```bash
+cd shell
+npm ci
+npm run build
+```
+
+Python engine 환경 생성:
+
+```bash
+cd engine
+python3 -m venv .venv
+. .venv/bin/activate
+pip install -r requirements.txt
+```
+
+필요한 테스트 실행:
+
+```bash
+cd renderer && npm test
+cd shell && npm test
+cd engine && . .venv/bin/activate && pytest
+```
+
+## 아키텍처
+
+PhotoDedup은 데스크톱 창과 플랫폼 연동을 담당하는 Electron shell, 사용자 인터페이스를 담당하는 React renderer, 스캔·해시·그룹핑·썸네일·정리 계획을 담당하는 Python FastAPI sidecar로 구성됩니다.
+
+Electron 프로세스는 `127.0.0.1`의 임시 포트와 토큰으로 sidecar를 시작합니다. renderer는 preload bridge를 통해 로컬 sidecar에만 접근합니다. 사진, 썸네일, manifest는 모두 로컬 머신에 남습니다.
+
+## License
+
+MIT License. 자세한 내용은 [LICENSE](LICENSE)를 참고하세요.

@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.*
+dist/
+build/
+out/
+shell/resources/sidecar/
+shell/release/
+*.log
+*.tsbuildinfo
+renderer/vite.config.d.ts
+renderer/vite.config.js
+__pycache__/
+.venv/
+engine/.venv/
+.DS_Store

@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build renderer
+        working-directory: renderer
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build shell
+        working-directory: shell
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build sidecar
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r engine/requirements.txt pyinstaller
+          pyinstaller engine/photodedup-sidecar.spec --noconfirm --distpath engine/dist --workpath engine/build
+          New-Item -ItemType Directory -Force shell/resources/sidecar/win32
+          Copy-Item -Recurse -Force engine/dist/photodedup-sidecar shell/resources/sidecar/win32/photodedup-sidecar
+
+      - name: Package Windows app
+        working-directory: shell
+        run: npx electron-builder --win nsis portable --publish never
+
+      - name: Upload Windows release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            shell/release/*.exe
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build renderer
+        working-directory: renderer
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build shell
+        working-directory: shell
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build sidecar
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r engine/requirements.txt pyinstaller
+          pyinstaller engine/photodedup-sidecar.spec --noconfirm --distpath engine/dist --workpath engine/build
+          mkdir -p shell/resources/sidecar/linux
+          cp -a engine/dist/photodedup-sidecar shell/resources/sidecar/linux/photodedup-sidecar
+          chmod +x shell/resources/sidecar/linux/photodedup-sidecar/photodedup-sidecar
+
+      - name: Package Linux app
+        working-directory: shell
+        run: npx electron-builder --linux AppImage --publish never
+
+      - name: Upload Linux release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            shell/release/*.AppImage
