@@ -30,6 +30,16 @@ Releases are published at:
 
 https://github.com/lisyoen/photodedup/releases
 
+## Release History
+
+| Version | Date | Summary |
+|---------|------|---------|
+| v0.1.4 | 2026-07-18 | Added incremental scan cache stats, skipped regrouping when no new files are found, and kept source-install update fixes current. |
+| v0.1.3 | 2026-07-18 | Fixed source-install update commands to run from the correct package directories. |
+| v0.1.2 | 2026-07-18 | Added startup update checks, version badge feedback, and update flow coverage. |
+| v0.1.1 | 2026-07-18 | Improved public README localization, screenshots, settings cache controls, and modal layout behavior. |
+| v0.1.0 | 2026-07-18 | Initial public release with local duplicate photo scanning, quality suggestions, cleanup, restore, and multilingual UI. |
+
 ## Development Setup
 
 PhotoDedup has three main parts:
