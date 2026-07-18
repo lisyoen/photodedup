@@ -1124,32 +1124,34 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="apply-title">
           <div className="modal" ref={applyModalRef}>
             <h2 id="apply-title">{t("apply.title")}</h2>
-            <dl className="summary">
-              <div><dt>{t("apply.deleteMarkedPhotos")}</dt><dd>{applyScope.deleteCount}</dd></div>
-              <div><dt>{t("apply.groupsAffected")}</dt><dd>{applyScope.groupCount}</dd></div>
-              <div><dt>{t("apply.excludedGroups")}</dt><dd>{applyScope.excludedGroupCount}</dd></div>
-              <div><dt>{t("apply.estimatedSavings")}</dt><dd>{formatBytes(applyScope.deleteBytes)}</dd></div>
-            </dl>
-            <fieldset>
-              <legend>{t("apply.mode")}</legend>
-              <label>
-                <input
-                  type="radio"
-                  checked={applyMode === "trash"}
-                  onChange={() => setApplyMode("trash")}
-                />
-                {t("apply.mode.trash")}
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  checked={applyMode === "permanent"}
-                  onChange={() => setApplyMode("permanent")}
-                />
-                {t("apply.mode.permanent")}
-              </label>
-            </fieldset>
-            <p>{t("apply.note")}</p>
+            <div className="modal-body">
+              <dl className="summary">
+                <div><dt>{t("apply.deleteMarkedPhotos")}</dt><dd>{applyScope.deleteCount}</dd></div>
+                <div><dt>{t("apply.groupsAffected")}</dt><dd>{applyScope.groupCount}</dd></div>
+                <div><dt>{t("apply.excludedGroups")}</dt><dd>{applyScope.excludedGroupCount}</dd></div>
+                <div><dt>{t("apply.estimatedSavings")}</dt><dd>{formatBytes(applyScope.deleteBytes)}</dd></div>
+              </dl>
+              <fieldset>
+                <legend>{t("apply.mode")}</legend>
+                <label>
+                  <input
+                    type="radio"
+                    checked={applyMode === "trash"}
+                    onChange={() => setApplyMode("trash")}
+                  />
+                  {t("apply.mode.trash")}
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    checked={applyMode === "permanent"}
+                    onChange={() => setApplyMode("permanent")}
+                  />
+                  {t("apply.mode.permanent")}
+                </label>
+              </fieldset>
+              <p>{t("apply.note")}</p>
+            </div>
             <div className="modal-actions">
               <button onClick={() => closeApplyModal({ restoreFocus: true })}>{t("common.cancel")}</button>
               <button
@@ -1169,161 +1171,163 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
           <div className="modal settings-modal" ref={settingsModalRef}>
             <h2 id="settings-title">{t("settings.title")}</h2>
-            <fieldset>
-              <legend>{t("settings.language")}</legend>
-              {LANGUAGES.map(({ code, label }) => (
-                <label key={code}>
-                  <input
-                    type="radio"
-                    name="language"
-                    checked={language === code}
-                    onChange={() => handleLanguageChange(code)}
-                  />
-                  {label}
-                  {code === "en" ? ` (${t("settings.language.default")})` : ""}
-                </label>
-              ))}
-            </fieldset>
-
-            <section className="settings-section" aria-labelledby="background-scan-interval-title">
-              <h3 id="background-scan-interval-title">{t("settings.backgroundScanInterval")}</h3>
-              <select
-                aria-label={t("settings.backgroundScanInterval")}
-                value={backgroundScanIntervalHours}
-                onChange={(event) => {
-                  handleBackgroundScanIntervalChange(Number(event.currentTarget.value) as BackgroundScanIntervalHours);
-                }}
-              >
-                {BACKGROUND_SCAN_INTERVAL_OPTIONS.map((hours) => (
-                  <option key={hours} value={hours}>
-                    {t(`settings.backgroundScanInterval.${hours}` as const)}
-                  </option>
+            <div className="modal-body">
+              <fieldset>
+                <legend>{t("settings.language")}</legend>
+                {LANGUAGES.map(({ code, label }) => (
+                  <label key={code}>
+                    <input
+                      type="radio"
+                      name="language"
+                      checked={language === code}
+                      onChange={() => handleLanguageChange(code)}
+                    />
+                    {label}
+                    {code === "en" ? ` (${t("settings.language.default")})` : ""}
+                  </label>
                 ))}
-              </select>
-            </section>
+              </fieldset>
 
-            <section className="settings-section" aria-labelledby="quick-select-title">
-              <h3 id="quick-select-title">{t("settings.quickSelect")}</h3>
-              <label className="toggle-row">
-                <input
-                  type="checkbox"
-                  checked={quickSelectEnabled}
-                  onChange={(event) => handleQuickSelectChange(event.currentTarget.checked)}
-                />
-                <span>{t("settings.quickSelectHelp")}</span>
-              </label>
-            </section>
-
-            <section className="settings-section" aria-labelledby="include-online-only-title">
-              <h3 id="include-online-only-title">{t("settings.includeOnlineOnly")}</h3>
-              <label className="toggle-row">
-                <input
-                  type="checkbox"
-                  checked={includeOnlineOnlyDraft}
-                  onChange={(event) => setIncludeOnlineOnlyDraft(event.currentTarget.checked)}
-                />
-                <span>{t("settings.includeOnlineOnlyHelp")}</span>
-              </label>
-              <p className="settings-note">{t("settings.includeOnlineOnlyWarning")}</p>
-            </section>
-
-            <section className="settings-section" aria-labelledby="cache-title">
-              <h3 id="cache-title">{t("settings.cache")}</h3>
-              <label className="cache-path-row">
-                <span>{t("settings.cacheDir")}</span>
-                <input
-                  readOnly
-                  value={cacheInfo?.cache_dir ?? t("settings.cacheLoading")}
-                  aria-label={t("settings.cacheDir")}
-                />
-              </label>
-              <div className="cache-actions-row">
-                <p className="settings-note">
-                  {cacheInfo
-                    ? t("settings.cacheSnapshotSummary", {
-                      count: cacheInfo.snapshot_count,
-                      size: formatBytes(cacheInfo.snapshot_bytes),
-                    })
-                    : t("settings.cacheLoading")}
-                </p>
-                <button
-                  onClick={() => setCacheClearConfirmOpen(true)}
-                  disabled={settingsSaving || cacheClearing}
-                >
-                  {t("settings.clearCache")}
-                </button>
-              </div>
-            </section>
-
-            <section className="settings-section" aria-labelledby="scan-folders-title">
-              <h3 id="scan-folders-title">{t("settings.scanFolders")}</h3>
-              <div className="folder-add-row">
-                <input
-                  aria-label={t("settings.scanFolderInput")}
-                  value={scanFolderDraft}
-                  placeholder={t("settings.scanFolderPlaceholder")}
-                  onChange={(event) => setScanFolderDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && canAddFolder) handleAddScanFolder();
+              <section className="settings-section" aria-labelledby="background-scan-interval-title">
+                <h3 id="background-scan-interval-title">{t("settings.backgroundScanInterval")}</h3>
+                <select
+                  aria-label={t("settings.backgroundScanInterval")}
+                  value={backgroundScanIntervalHours}
+                  onChange={(event) => {
+                    handleBackgroundScanIntervalChange(Number(event.currentTarget.value) as BackgroundScanIntervalHours);
                   }}
-                />
-                <button
-                  onClick={handleAddScanFolder}
-                  disabled={!canAddFolder}
-                  aria-label={t("settings.addFolder")}
                 >
-                  {t("common.add")}
-                </button>
-                {canSelectSettingsFolders && (
-                  <button
-                    onClick={() => void handleSelectSettingsFolders()}
-                    disabled={settingsSaving}
-                    aria-label={t("settings.selectFolders")}
-                  >
-                    {t("settings.selectFolders")}
-                  </button>
-                )}
-              </div>
-              {scanFolders.length === 0 ? (
-                <p className="empty-note">{t("settings.scanFolders.empty")}</p>
-              ) : (
-                <ul className="folder-list">
-                  {scanFolders.map((path) => (
-                    <li key={path}>
-                      <span>{path}</span>
-                      <button
-                        onClick={() => handleRemoveScanFolder(path)}
-                        aria-label={t("settings.removeFolder", { path })}
-                      >
-                        {t("common.remove")}
-                      </button>
-                    </li>
+                  {BACKGROUND_SCAN_INTERVAL_OPTIONS.map((hours) => (
+                    <option key={hours} value={hours}>
+                      {t(`settings.backgroundScanInterval.${hours}` as const)}
+                    </option>
                   ))}
-                </ul>
-              )}
-            </section>
+                </select>
+              </section>
 
-            <section className="settings-section" aria-labelledby="similarity-threshold-title">
-              <div className="settings-section-header">
-                <h3 id="similarity-threshold-title">{t("settings.similarityThreshold")}</h3>
-                <strong>{thresholdDraft}</strong>
-              </div>
-              <label className="range-row">
-                <span>{t("settings.similarityThreshold")}</span>
-                <input
-                  type="range"
-                  min="70"
-                  max="100"
-                  step="1"
-                  value={thresholdDraft}
-                  aria-label={t("settings.similarityThreshold")}
-                  onChange={(event) => setThresholdDraft(Number(event.currentTarget.value))}
-                />
-              </label>
-              <p className="settings-note">{t("settings.similarityThresholdHelp")}</p>
-            </section>
+              <section className="settings-section" aria-labelledby="quick-select-title">
+                <h3 id="quick-select-title">{t("settings.quickSelect")}</h3>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={quickSelectEnabled}
+                    onChange={(event) => handleQuickSelectChange(event.currentTarget.checked)}
+                  />
+                  <span>{t("settings.quickSelectHelp")}</span>
+                </label>
+              </section>
 
-            <p className="settings-note">{t("settings.savedImmediately")}</p>
+              <section className="settings-section" aria-labelledby="include-online-only-title">
+                <h3 id="include-online-only-title">{t("settings.includeOnlineOnly")}</h3>
+                <label className="toggle-row">
+                  <input
+                    type="checkbox"
+                    checked={includeOnlineOnlyDraft}
+                    onChange={(event) => setIncludeOnlineOnlyDraft(event.currentTarget.checked)}
+                  />
+                  <span>{t("settings.includeOnlineOnlyHelp")}</span>
+                </label>
+                <p className="settings-note">{t("settings.includeOnlineOnlyWarning")}</p>
+              </section>
+
+              <section className="settings-section" aria-labelledby="cache-title">
+                <h3 id="cache-title">{t("settings.cache")}</h3>
+                <label className="cache-path-row">
+                  <span>{t("settings.cacheDir")}</span>
+                  <input
+                    readOnly
+                    value={cacheInfo?.cache_dir ?? t("settings.cacheLoading")}
+                    aria-label={t("settings.cacheDir")}
+                  />
+                </label>
+                <div className="cache-actions-row">
+                  <p className="settings-note">
+                    {cacheInfo
+                      ? t("settings.cacheSnapshotSummary", {
+                        count: cacheInfo.snapshot_count,
+                        size: formatBytes(cacheInfo.snapshot_bytes),
+                      })
+                      : t("settings.cacheLoading")}
+                  </p>
+                  <button
+                    onClick={() => setCacheClearConfirmOpen(true)}
+                    disabled={settingsSaving || cacheClearing}
+                  >
+                    {t("settings.clearCache")}
+                  </button>
+                </div>
+              </section>
+
+              <section className="settings-section" aria-labelledby="scan-folders-title">
+                <h3 id="scan-folders-title">{t("settings.scanFolders")}</h3>
+                <div className="folder-add-row">
+                  <input
+                    aria-label={t("settings.scanFolderInput")}
+                    value={scanFolderDraft}
+                    placeholder={t("settings.scanFolderPlaceholder")}
+                    onChange={(event) => setScanFolderDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && canAddFolder) handleAddScanFolder();
+                    }}
+                  />
+                  <button
+                    onClick={handleAddScanFolder}
+                    disabled={!canAddFolder}
+                    aria-label={t("settings.addFolder")}
+                  >
+                    {t("common.add")}
+                  </button>
+                  {canSelectSettingsFolders && (
+                    <button
+                      onClick={() => void handleSelectSettingsFolders()}
+                      disabled={settingsSaving}
+                      aria-label={t("settings.selectFolders")}
+                    >
+                      {t("settings.selectFolders")}
+                    </button>
+                  )}
+                </div>
+                {scanFolders.length === 0 ? (
+                  <p className="empty-note">{t("settings.scanFolders.empty")}</p>
+                ) : (
+                  <ul className="folder-list">
+                    {scanFolders.map((path) => (
+                      <li key={path}>
+                        <span>{path}</span>
+                        <button
+                          onClick={() => handleRemoveScanFolder(path)}
+                          aria-label={t("settings.removeFolder", { path })}
+                        >
+                          {t("common.remove")}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="settings-section" aria-labelledby="similarity-threshold-title">
+                <div className="settings-section-header">
+                  <h3 id="similarity-threshold-title">{t("settings.similarityThreshold")}</h3>
+                  <strong>{thresholdDraft}</strong>
+                </div>
+                <label className="range-row">
+                  <span>{t("settings.similarityThreshold")}</span>
+                  <input
+                    type="range"
+                    min="70"
+                    max="100"
+                    step="1"
+                    value={thresholdDraft}
+                    aria-label={t("settings.similarityThreshold")}
+                    onChange={(event) => setThresholdDraft(Number(event.currentTarget.value))}
+                  />
+                </label>
+                <p className="settings-note">{t("settings.similarityThresholdHelp")}</p>
+              </section>
+
+              <p className="settings-note">{t("settings.savedImmediately")}</p>
+            </div>
             <div className="modal-actions">
               <button onClick={() => void handleSaveSettings()} disabled={settingsSaving}>
                 {t("settings.save")}
@@ -1338,7 +1342,9 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cache-clear-title">
           <div className="modal confirm-modal" ref={cacheClearConfirmModalRef}>
             <h2 id="cache-clear-title">{t("settings.clearCacheConfirmTitle")}</h2>
-            <p>{t("settings.clearCacheConfirmBody")}</p>
+            <div className="modal-body">
+              <p>{t("settings.clearCacheConfirmBody")}</p>
+            </div>
             <div className="modal-actions">
               <button
                 ref={cacheClearConfirmButtonRef}

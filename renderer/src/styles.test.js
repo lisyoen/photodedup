@@ -9,6 +9,11 @@ function ruleFor(selector) {
   return css.match(new RegExp(`${selector.replaceAll(".", "\\.")}\\s*\\{[^}]*\\}`))?.[0] ?? "";
 }
 
+function standaloneRuleFor(selector) {
+  const matches = Array.from(css.matchAll(new RegExp(`(?:^|\\n)${selector.replaceAll(".", "\\.")}\\s*\\{[^}]*\\}`, "g")));
+  return matches.at(-1)?.[0] ?? "";
+}
+
 function customPropertyValue(name) {
   const match = css.match(new RegExp(`${name}:\\s*(\\d+)\\s*;`));
   return match ? Number(match[1]) : Number.NaN;
@@ -39,5 +44,16 @@ describe("group list filters", () => {
     expect(filtersRule).toContain("z-index: var(--z-content-sticky)");
     expect(modalBackdropRule).toContain("z-index: var(--z-modal-backdrop)");
     expect(customPropertyValue("--z-modal-backdrop")).toBeGreaterThan(customPropertyValue("--z-content-sticky"));
+  });
+
+  it("keeps modal headers and actions fixed while only the body scrolls", () => {
+    const modalRule = standaloneRuleFor(".modal");
+    const modalBodyRule = standaloneRuleFor(".modal-body");
+
+    expect(modalRule).toContain("max-height: calc(100vh - 40px)");
+    expect(modalRule).toContain("grid-template-rows: auto minmax(0, 1fr) auto");
+    expect(modalRule).toContain("overflow: hidden");
+    expect(modalBodyRule).toContain("min-height: 0");
+    expect(modalBodyRule).toContain("overflow-y: auto");
   });
 });

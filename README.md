@@ -6,6 +6,8 @@ PhotoDedup is a desktop app for finding and cleaning up duplicate or visually si
 
 The app is local-first: photos stay on your computer, and scan data is stored in a local SQLite database. PhotoDedup does not upload images or send scan results to a remote service.
 
+![PhotoDedup main screen](docs/images/screenshot-main.png)
+
 ## Features
 
 - Perceptual hash grouping for duplicate and near-duplicate photos

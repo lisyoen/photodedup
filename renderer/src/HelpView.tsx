@@ -67,35 +67,37 @@ export function HelpView({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        <ManualSection title={t("help.workflow.title")}>
-          <ol className="help-list ordered">
-            {WORKFLOW_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
-          </ol>
-        </ManualSection>
+        <div className="modal-body">
+          <ManualSection title={t("help.workflow.title")}>
+            <ol className="help-list ordered">
+              {WORKFLOW_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
+            </ol>
+          </ManualSection>
 
-        <ManualSection title={t("help.pipeline.title")}>
-          <ul className="help-list">
-            {PIPELINE_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
-          </ul>
-        </ManualSection>
+          <ManualSection title={t("help.pipeline.title")}>
+            <ul className="help-list">
+              {PIPELINE_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
+            </ul>
+          </ManualSection>
 
-        <ManualSection title={t("help.similarity.title")}>
-          <ul className="help-list">
-            {SIMILARITY_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
-          </ul>
-        </ManualSection>
+          <ManualSection title={t("help.similarity.title")}>
+            <ul className="help-list">
+              {SIMILARITY_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
+            </ul>
+          </ManualSection>
 
-        <ManualSection title={t("help.keep.title")}>
-          <ul className="help-list">
-            {KEEP_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
-          </ul>
-        </ManualSection>
+          <ManualSection title={t("help.keep.title")}>
+            <ul className="help-list">
+              {KEEP_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
+            </ul>
+          </ManualSection>
 
-        <ManualSection title={t("help.display.title")}>
-          <ul className="help-list">
-            {DISPLAY_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
-          </ul>
-        </ManualSection>
+          <ManualSection title={t("help.display.title")}>
+            <ul className="help-list">
+              {DISPLAY_KEYS.map((key) => <li key={key}>{t(key)}</li>)}
+            </ul>
+          </ManualSection>
+        </div>
       </article>
     </div>
   );

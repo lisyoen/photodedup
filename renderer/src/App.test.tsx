@@ -419,6 +419,27 @@ describe("App settings", () => {
     expectLanguageLabels("English (既定)");
   });
 
+  it("renders settings modal with a dedicated scrollable body between title and actions", async () => {
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await settle();
+
+    getButton("Open settings").click();
+    await settle();
+
+    const modal = getRequiredElement(".settings-modal");
+    const children = Array.from(modal.children);
+
+    expect(children[0]).toBe(document.querySelector("#settings-title"));
+    expect(children[1]).toBe(document.querySelector(".settings-modal > .modal-body"));
+    expect(children[2]).toBe(document.querySelector(".settings-modal > .modal-actions"));
+    expect(children[1]?.querySelector(".settings-section")).toBeTruthy();
+    expect(children[1]?.querySelector(".modal-actions")).toBeNull();
+  });
+
   it("shows an empty scan folder list before settings are saved", async () => {
     root.render(
       <I18nProvider>
@@ -1009,7 +1030,12 @@ describe("App settings", () => {
     );
     getButton("Save settings").click();
 
-    await waitUntil(() => cancelScan.mock.calls.length === 1 && startScan.mock.calls.length === 2);
+    await waitUntil(() =>
+      cancelScan.mock.calls.length === 1 &&
+      startScan.mock.calls.length === 2 &&
+      document.body.textContent?.includes("Collecting files · 0 found · queued") === true &&
+      document.body.textContent.includes("1/10") === false
+    );
 
     expect(cancelScan).toHaveBeenCalledWith("active-scan");
     expect(startScan).toHaveBeenLastCalledWith({ roots: ["D:\\Running Photos", "E:\\Camera Roll"] });

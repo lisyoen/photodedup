@@ -6,6 +6,8 @@ PhotoDedup은 중복 사진과 시각적으로 유사한 사진을 찾아 정리
 
 앱은 로컬 우선 구조입니다. 사진은 사용자의 컴퓨터에 그대로 남고, 스캔 데이터는 로컬 SQLite 데이터베이스에 저장됩니다. PhotoDedup은 이미지나 스캔 결과를 원격 서비스로 업로드하지 않습니다.
 
+![PhotoDedup 메인 화면](docs/images/screenshot-main.png)
+
 ## 주요 기능
 
 - Perceptual hash 기반 중복 및 유사 사진 그룹핑
