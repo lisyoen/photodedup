@@ -39,10 +39,10 @@ export interface UpdateProgress {
 
 export const UPDATE_STAGES: UpdateStage[] = [
   { id: "git-pull", label: "git pull origin main" },
-  { id: "renderer-install", label: "npm --prefix renderer install --no-audit --no-fund" },
-  { id: "renderer-build", label: "npm --prefix renderer run build" },
-  { id: "shell-install", label: "npm --prefix shell install --no-audit --no-fund" },
-  { id: "shell-build", label: "npm --prefix shell run build" },
+  { id: "renderer-install", label: "renderer: npm install --no-audit --no-fund" },
+  { id: "renderer-build", label: "renderer: npm run build" },
+  { id: "shell-install", label: "shell: npm install --no-audit --no-fund" },
+  { id: "shell-build", label: "shell: npm run build" },
 ];
 
 export function normalizeSemver(version: string): [number, number, number] | null {
@@ -185,17 +185,18 @@ export async function runSourceUpdate(options: {
   log: (message: string) => void;
   onProgress: (progress: UpdateProgress) => void;
 }): Promise<{ ok: true } | { ok: false; stage: UpdateStage; error: string }> {
-  const commands: Array<{ stage: UpdateStage; command: string; args: string[] }> = [
+  const commands: Array<{ stage: UpdateStage; command: string; args: string[]; cwd?: string }> = [
     { stage: UPDATE_STAGES[0], command: "git", args: ["pull", "origin", "main"] },
-    { stage: UPDATE_STAGES[1], command: "npm", args: ["--prefix", "renderer", "install", "--no-audit", "--no-fund"] },
-    { stage: UPDATE_STAGES[2], command: "npm", args: ["--prefix", "renderer", "run", "build"] },
-    { stage: UPDATE_STAGES[3], command: "npm", args: ["--prefix", "shell", "install", "--no-audit", "--no-fund"] },
-    { stage: UPDATE_STAGES[4], command: "npm", args: ["--prefix", "shell", "run", "build"] },
+    { stage: UPDATE_STAGES[1], command: "npm", args: ["install", "--no-audit", "--no-fund"], cwd: "renderer" },
+    { stage: UPDATE_STAGES[2], command: "npm", args: ["run", "build"], cwd: "renderer" },
+    { stage: UPDATE_STAGES[3], command: "npm", args: ["install", "--no-audit", "--no-fund"], cwd: "shell" },
+    { stage: UPDATE_STAGES[4], command: "npm", args: ["run", "build"], cwd: "shell" },
   ];
 
-  for (const { stage, command, args } of commands) {
+  for (const { stage, command, args, cwd } of commands) {
     options.onProgress({ status: "running", stage });
-    const result = await runCommand(command, args, options.repoRoot, options.log);
+    const commandCwd = cwd ? path.join(options.repoRoot, cwd) : options.repoRoot;
+    const result = await runCommand(command, args, commandCwd, options.log);
     if (!result.ok) {
       options.onProgress({ status: "failed", stage, error: result.error });
       return { ok: false, stage, error: result.error };

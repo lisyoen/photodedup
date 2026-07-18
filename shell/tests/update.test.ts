@@ -1,5 +1,52 @@
-import { describe, expect, it, vi } from "vitest";
-import { checkUpdateStatus, compareSemver, resolveUpdateAvailability, resolveUpdateStatus } from "../src/update";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  checkUpdateStatus,
+  compareSemver,
+  resolveUpdateAvailability,
+  resolveUpdateStatus,
+  runSourceUpdate,
+  UPDATE_STAGES,
+} from "../src/update";
+
+const spawnCalls = vi.hoisted(() => [] as Array<{
+  command: string;
+  args: string[];
+  options: { cwd?: string; shell?: boolean };
+}>);
+
+vi.mock("node:child_process", () => {
+  const makeEmitter = () => {
+    const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+    return {
+      on(event: string, listener: (...args: unknown[]) => void) {
+        listeners.set(event, [...(listeners.get(event) ?? []), listener]);
+      },
+      emit(event: string, ...args: unknown[]) {
+        for (const listener of listeners.get(event) ?? []) {
+          listener(...args);
+        }
+      },
+    };
+  };
+
+  return {
+    spawn: vi.fn((command: string, args: string[], options: { cwd?: string; shell?: boolean }) => {
+      spawnCalls.push({ command, args, options });
+      const child = makeEmitter();
+      Object.assign(child, {
+        stdout: makeEmitter(),
+        stderr: makeEmitter(),
+      });
+      setImmediate(() => child.emit("close", 0, null));
+      return child;
+    }),
+  };
+});
+
+beforeEach(() => {
+  spawnCalls.length = 0;
+});
 
 describe("compareSemver", () => {
   it("detects a newer patch version", () => {
@@ -98,5 +145,56 @@ describe("update availability", () => {
       updateAvailable: false,
       isSourceInstall: true,
     });
+  });
+});
+
+describe("runSourceUpdate", () => {
+  it("runs source update npm steps inside package directories without --prefix", async () => {
+    const repoRoot = path.join(path.sep, "tmp", "photo-dedup-desktop");
+
+    await expect(runSourceUpdate({
+      repoRoot,
+      log: vi.fn(),
+      onProgress: vi.fn(),
+    })).resolves.toEqual({ ok: true });
+
+    expect(spawnCalls).toEqual([
+      {
+        command: "git",
+        args: ["pull", "origin", "main"],
+        options: { cwd: repoRoot, shell: process.platform === "win32" },
+      },
+      {
+        command: "npm",
+        args: ["install", "--no-audit", "--no-fund"],
+        options: { cwd: path.join(repoRoot, "renderer"), shell: process.platform === "win32" },
+      },
+      {
+        command: "npm",
+        args: ["run", "build"],
+        options: { cwd: path.join(repoRoot, "renderer"), shell: process.platform === "win32" },
+      },
+      {
+        command: "npm",
+        args: ["install", "--no-audit", "--no-fund"],
+        options: { cwd: path.join(repoRoot, "shell"), shell: process.platform === "win32" },
+      },
+      {
+        command: "npm",
+        args: ["run", "build"],
+        options: { cwd: path.join(repoRoot, "shell"), shell: process.platform === "win32" },
+      },
+    ]);
+    expect(spawnCalls.flatMap((call) => call.args)).not.toContain("--prefix");
+  });
+
+  it("keeps update stage labels aligned with cwd-based commands", () => {
+    expect(UPDATE_STAGES.map((stage) => stage.label)).toEqual([
+      "git pull origin main",
+      "renderer: npm install --no-audit --no-fund",
+      "renderer: npm run build",
+      "shell: npm install --no-audit --no-fund",
+      "shell: npm run build",
+    ]);
   });
 });
