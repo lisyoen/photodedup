@@ -49,11 +49,33 @@ describe("group list filters", () => {
   it("keeps modal headers and actions fixed while only the body scrolls", () => {
     const modalRule = standaloneRuleFor(".modal");
     const modalBodyRule = standaloneRuleFor(".modal-body");
+    const modalActionsRule = ruleFor(".modal-actions");
 
     expect(modalRule).toContain("max-height: calc(100vh - 40px)");
-    expect(modalRule).toContain("grid-template-rows: auto minmax(0, 1fr) auto");
+    expect(modalRule).toContain("display: flex");
+    expect(modalRule).toContain("flex-direction: column");
     expect(modalRule).toContain("overflow: hidden");
+    expect(modalBodyRule).toContain("flex: 1 1 auto");
     expect(modalBodyRule).toContain("min-height: 0");
     expect(modalBodyRule).toContain("overflow-y: auto");
+    expect(modalBodyRule).toContain("overflow-x: hidden");
+    expect(modalActionsRule).toContain("flex: 0 0 auto");
+    expect(modalRule).not.toContain("overflow-y: auto");
+    expect(modalActionsRule).not.toContain("overflow-y: auto");
+  });
+
+  it("widens the settings modal while keeping long settings content inside the body", () => {
+    const settingsModalRule = ruleFor(".settings-modal");
+    const folderAddRowRule = ruleFor(".folder-add-row");
+    const folderListSpanRule = ruleFor(".folder-list span");
+    const cachePathInputRule = ruleFor(".cache-path-row input");
+
+    expect(settingsModalRule).toContain("width: min(760px, calc(100vw - 48px))");
+    expect(folderAddRowRule).toContain("grid-template-columns: minmax(0, 1fr) auto auto");
+    expect(folderAddRowRule).toContain("gap: 8px");
+    expect(folderListSpanRule).toContain("min-width: 0");
+    expect(folderListSpanRule).toContain("overflow-wrap: anywhere");
+    expect(cachePathInputRule).toContain("min-width: 0");
+    expect(cachePathInputRule).toContain("text-overflow: ellipsis");
   });
 });

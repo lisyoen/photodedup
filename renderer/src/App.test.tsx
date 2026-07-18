@@ -1336,11 +1336,20 @@ describe("App settings", () => {
     await settle();
 
     dispatchShortcut("KeyA");
-    await waitUntil(() => applyGroupAction.mock.calls.length === 1);
+    await waitUntil(() =>
+      applyGroupAction.mock.calls.length === 1 &&
+      activeGroupTitle() === "#181"
+    );
     dispatchShortcut("KeyS");
-    await waitUntil(() => applyGroupAction.mock.calls.length === 2);
+    await waitUntil(() =>
+      applyGroupAction.mock.calls.length === 2 &&
+      activeGroupTitle() === "#178"
+    );
     dispatchShortcut("KeyD");
-    await waitUntil(() => applyGroupAction.mock.calls.length === 3);
+    await waitUntil(() =>
+      applyGroupAction.mock.calls.length === 3 &&
+      activeGroupTitle() === "#175"
+    );
 
     expect(applyGroupAction.mock.calls.map((call) => call[1])).toEqual([
       "apply_recommended",
@@ -1466,8 +1475,12 @@ describe("App settings", () => {
 
     await waitUntil(() => document.body.textContent?.includes("Group #184") === true);
     dispatchShortcut("KeyD");
-    await waitUntil(() => applyGroupAction.mock.calls.length === 1);
-    await settle();
+    await waitUntil(() =>
+      applyGroupAction.mock.calls.length === 1 &&
+      document.body.textContent?.includes("Group #184") === true &&
+      document.body.textContent.includes("Group #181") === false &&
+      activeGroupTitle() === "#184"
+    );
 
     expect(document.body.textContent).toContain("Group #184");
     expect(document.body.textContent).not.toContain("Group #181");
@@ -1543,8 +1556,11 @@ describe("App settings", () => {
     await waitUntil(() => document.body.textContent?.includes("Group #157") === true);
 
     dispatchShortcut("KeyD");
-    await waitUntil(() => applyGroupAction.mock.calls.length === 1);
-    await settle();
+    await waitUntil(() =>
+      applyGroupAction.mock.calls.length === 1 &&
+      document.body.textContent?.includes("Group #157") === true &&
+      activeGroupTitle() === "#157"
+    );
 
     expect(applyGroupAction).toHaveBeenCalledWith(157, "delete_all");
     expect(document.body.textContent).toContain("Group #157");
@@ -1706,9 +1722,19 @@ describe("App settings", () => {
     await waitUntil(() => document.body.textContent?.includes("Group #184") === true);
 
     const enter = dispatchShortcut("Enter", { key: "Enter" });
-    await waitUntil(() => applyGroupAction.mock.calls.length === 1);
+    await waitUntil(() =>
+      applyGroupAction.mock.calls.length === 1 &&
+      document.body.textContent?.includes("Group #184") === true &&
+      document.body.textContent.includes("Group #181") === false &&
+      activeGroupTitle() === "#184"
+    );
     const space = dispatchShortcut("Space", { key: " " });
-    await waitUntil(() => applyGroupAction.mock.calls.length === 2);
+    await waitUntil(() =>
+      applyGroupAction.mock.calls.length === 2 &&
+      document.body.textContent?.includes("Group #184") === true &&
+      document.body.textContent.includes("Group #181") === false &&
+      activeGroupTitle() === "#184"
+    );
 
     expect(enter.defaultPrevented).toBe(true);
     expect(space.defaultPrevented).toBe(true);
@@ -2102,6 +2128,10 @@ function getPhotoCards(): HTMLElement[] {
 
 function getPhotoGrid(): HTMLElement {
   return getRequiredElement(".photo-grid");
+}
+
+function activeGroupTitle(): string | null {
+  return document.querySelector(".group-card.active .group-title")?.textContent?.trim() ?? null;
 }
 
 function getButton(name: string): HTMLButtonElement {

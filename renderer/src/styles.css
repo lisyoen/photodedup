@@ -538,14 +538,16 @@ button:disabled {
   border-radius: 8px;
   padding: 20px;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .modal-body {
+  flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .settings-modal,
@@ -555,6 +557,10 @@ button:disabled {
 
 .help-modal {
   width: min(820px, 100%);
+}
+
+.settings-modal {
+  width: min(760px, calc(100vw - 48px));
 }
 
 .help-modal .modal-body {
@@ -681,6 +687,7 @@ button:disabled {
 }
 
 .cache-actions-row p {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
@@ -688,6 +695,10 @@ button:disabled {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
+}
+
+.folder-add-row input {
+  min-width: 0;
 }
 
 .folder-list {
@@ -710,6 +721,7 @@ button:disabled {
 }
 
 .folder-list span {
+  min-width: 0;
   overflow-wrap: anywhere;
 }
 
@@ -770,7 +782,9 @@ fieldset label {
 }
 
 .modal-actions {
+  flex: 0 0 auto;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
@@ -778,6 +792,13 @@ fieldset label {
 
 .modal-actions .danger {
   background: #b4232f;
+}
+
+@media (max-width: 560px) {
+  .folder-add-row,
+  .cache-actions-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .toast {
