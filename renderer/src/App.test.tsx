@@ -1114,6 +1114,266 @@ describe("App settings", () => {
     expect(Array.from(document.querySelectorAll("button")).some((button) => button.textContent?.trim() === "Select folders")).toBe(false);
   });
 
+  it("shows the current app version in the header", async () => {
+    const getAppVersion = vi.fn().mockResolvedValue("0.1.2");
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      getAppVersion,
+      getUpdateAvailability: vi.fn().mockResolvedValue(null),
+      onTrayScanNow: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntil(() => getAppVersion.mock.calls.length === 1);
+    await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2");
+
+    expect(document.querySelector(".topbar .version-badge")?.textContent?.trim()).toBe("v0.1.2");
+  });
+
+  it("shows an emphasized update badge and opens the existing update modal on click", async () => {
+    const getAppVersion = vi.fn().mockResolvedValue("0.1.2");
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      getAppVersion,
+      getUpdateAvailability: vi.fn().mockResolvedValue({
+        latest: "0.1.3",
+        current: "0.1.2",
+        htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.1.3",
+        updateAvailable: true,
+        isSourceInstall: true,
+      }),
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntil(() => document.body.textContent?.includes("New version v0.1.3 is available") === true);
+    getButton("Later").click();
+    await waitUntil(() => document.querySelector(".update-modal") === null);
+    const badge = getRequiredElement(".topbar .version-badge");
+
+    expect(badge.classList.contains("available")).toBe(true);
+    expect(badge.textContent?.trim()).toBe("v0.1.2 -> v0.1.3 update");
+
+    badge.click();
+
+    await waitUntil(() => document.body.textContent?.includes("New version v0.1.3 is available") === true);
+  });
+
+  it("shows a muted latest-version badge and does not open the update modal on click", async () => {
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      getAppVersion: vi.fn().mockResolvedValue("0.1.2"),
+      getUpdateAvailability: vi.fn().mockResolvedValue({
+        current: "0.1.2",
+        latest: "0.1.2",
+        htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.1.2",
+        updateAvailable: false,
+        isSourceInstall: true,
+      }),
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2 · latest v0.1.2");
+    const badge = getRequiredElement(".topbar .version-badge");
+
+    expect(badge.classList.contains("current")).toBe(true);
+    expect(badge.getAttribute("title")).toBe("You are on the latest version");
+
+    badge.click();
+    await settle();
+
+    expect(document.querySelector(".update-modal")).toBeNull();
+  });
+
+  it("shows only the current version when the latest-version check fails", async () => {
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      getAppVersion: vi.fn().mockResolvedValue("0.1.2"),
+      getUpdateAvailability: vi.fn().mockResolvedValue({
+        current: "0.1.2",
+        latest: null,
+        htmlUrl: null,
+        updateAvailable: false,
+        isSourceInstall: true,
+      }),
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2");
+    const badge = getRequiredElement(".topbar .version-badge");
+
+    expect(badge.classList.contains("current")).toBe(true);
+    expect(badge.getAttribute("title")).toBe("Failed to check latest version");
+
+    badge.click();
+    await settle();
+
+    expect(document.querySelector(".update-modal")).toBeNull();
+  });
+
+  it("updates the version badge from the update availability event after an empty mount lookup", async () => {
+    const updateAvailableCallbacks: Array<(update: {
+      latest: string | null;
+      current: string;
+      htmlUrl: string | null;
+      updateAvailable: boolean;
+      isSourceInstall: boolean;
+    }) => void> = [];
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      getAppVersion: vi.fn().mockResolvedValue("0.1.2"),
+      getUpdateAvailability: vi.fn().mockResolvedValue(null),
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn((callback) => {
+        updateAvailableCallbacks.push(callback);
+        return () => undefined;
+      }),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2");
+    updateAvailableCallbacks[0]({
+      latest: "0.1.3",
+      current: "0.1.2",
+      htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.1.3",
+      updateAvailable: true,
+      isSourceInstall: true,
+    });
+
+    await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2 -> v0.1.3 update");
+    expect(getRequiredElement(".topbar .version-badge").classList.contains("available")).toBe(true);
+  });
+
+  it("renders the source update modal and starts the update", async () => {
+    const updateAvailableCallbacks: Array<(update: {
+      latest: string | null;
+      current: string;
+      htmlUrl: string | null;
+      updateAvailable: boolean;
+      isSourceInstall: boolean;
+    }) => void> = [];
+    const startUpdate = vi.fn().mockResolvedValue({ ok: true });
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      startUpdate,
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn((callback) => {
+        updateAvailableCallbacks.push(callback);
+        return () => undefined;
+      }),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntil(() => updateAvailableCallbacks.length === 1);
+    updateAvailableCallbacks[0]({
+      latest: "0.2.0",
+      current: "0.1.2",
+      htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.2.0",
+      updateAvailable: true,
+      isSourceInstall: true,
+    });
+    await waitUntil(() => document.body.textContent?.includes("New version v0.2.0 is available") === true);
+
+    expect(document.body.textContent).toContain("current v0.1.2");
+    expect(document.body.textContent).toContain("Release notes");
+    getButton("Update").click();
+
+    await waitUntil(() => startUpdate.mock.calls.length === 1);
+    expect(startUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the release page for packaged installs and suppresses later reminders in the session", async () => {
+    const updateAvailableCallbacks: Array<(update: {
+      latest: string | null;
+      current: string;
+      htmlUrl: string | null;
+      updateAvailable: boolean;
+      isSourceInstall: boolean;
+    }) => void> = [];
+    const openReleasePage = vi.fn().mockResolvedValue(undefined);
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      openReleasePage,
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn((callback) => {
+        updateAvailableCallbacks.push(callback);
+        return () => undefined;
+      }),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntil(() => updateAvailableCallbacks.length === 1);
+    const update = {
+      latest: "0.2.0",
+      current: "0.1.2",
+      htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.2.0",
+      updateAvailable: true,
+      isSourceInstall: false,
+    };
+    updateAvailableCallbacks[0](update);
+    await waitUntil(() => document.body.textContent?.includes("Open release page") === true);
+    getButton("Later").click();
+    await settle();
+    updateAvailableCallbacks[0](update);
+    await settle();
+
+    expect(document.body.textContent).not.toContain("Open release page");
+    expect(openReleasePage).not.toHaveBeenCalled();
+  });
+
   it("closes settings after a successful save", async () => {
     const putSettings = vi.spyOn(MockDataSource.prototype, "putSettings").mockImplementation(async (settings) => settings);
 

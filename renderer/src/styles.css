@@ -139,11 +139,45 @@ h2 {
 .topbar-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .folder-button {
   background: #314153;
+}
+
+.version-badge {
+  max-width: min(360px, 100%);
+  min-height: 30px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0 10px;
+  background: transparent;
+  color: #8f9cad;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.version-badge.current {
+  cursor: default;
+}
+
+.version-badge.available {
+  border-color: rgba(125, 211, 199, 0.5);
+  background: #123f3a;
+  color: #a7f3e3;
+  cursor: pointer;
+}
+
+.version-badge.available:hover {
+  background: #164943;
 }
 
 .icon-button {
@@ -563,6 +597,10 @@ button:disabled {
   width: min(760px, calc(100vw - 48px));
 }
 
+.update-modal {
+  gap: 12px;
+}
+
 .help-modal .modal-body {
   display: grid;
   gap: 16px;
@@ -571,6 +609,40 @@ button:disabled {
 .settings-modal .modal-body {
   display: grid;
   gap: 16px;
+}
+
+.update-modal .modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.update-modal a {
+  color: #7dd3c7;
+}
+
+.update-status {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 12px;
+  background: #12161d;
+}
+
+.update-status.succeeded {
+  border-color: rgba(125, 211, 199, 0.45);
+  background: #102f2b;
+}
+
+.update-status.failed {
+  border-color: rgba(255, 173, 183, 0.45);
+  background: #25181d;
+}
+
+.update-status span,
+.update-status code {
+  overflow-wrap: anywhere;
+  color: #c8d0dc;
 }
 
 .help-header {

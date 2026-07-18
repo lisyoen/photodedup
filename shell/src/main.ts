@@ -1,9 +1,16 @@
-import { app, BrowserWindow, Menu, Tray, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { rendererIndexPath } from "./paths";
 import { nextSidecarRestart, SidecarManager, type SidecarHandshake } from "./sidecar";
+import {
+  checkUpdateStatus,
+  isSourceInstall,
+  runSourceUpdate,
+  type UpdateStatus,
+  type UpdateProgress
+} from "./update";
 
 let mainWindow: BrowserWindow | null = null;
 let mainWindowCreation: Promise<void> | null = null;
@@ -20,6 +27,9 @@ let isQuitting = false;
 let sidecarStopRequested = false;
 let sidecarCrashCount = 0;
 let sidecarRestartTimer: NodeJS.Timeout | null = null;
+let updateCheckStarted = false;
+let updateInProgress = false;
+let lastUpdateStatus: UpdateStatus | null = null;
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
@@ -128,6 +138,36 @@ function sendTrayScanNow(): void {
   appendShellLog("tray scan-now sent");
 }
 
+function repoRoot(): string {
+  return path.resolve(__dirname, "..", "..");
+}
+
+function sendUpdateProgress(progress: UpdateProgress): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  mainWindow.webContents.send("update:progress", {
+    ...progress,
+    logPath: shellLogPath,
+  });
+}
+
+async function checkForUpdatesAfterLoad(): Promise<void> {
+  if (updateCheckStarted || !mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  updateCheckStarted = true;
+
+  const status = await checkUpdateStatus({
+    currentVersion: app.getVersion(),
+    isSourceInstall: isSourceInstall(repoRoot(), app.isPackaged),
+  });
+  lastUpdateStatus = status;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update:available", status);
+  }
+}
+
 function createTray(): void {
   if (tray) {
     return;
@@ -172,6 +212,46 @@ ipcMain.handle("dialog:selectFolders", async () => {
   return result.canceled ? [] : result.filePaths;
 });
 
+ipcMain.handle("app:get-version", () => app.getVersion());
+
+ipcMain.handle("update:get-availability", () => lastUpdateStatus);
+
+ipcMain.handle("update:open-release-page", async (_event, url: unknown) => {
+  if (typeof url !== "string" || !/^https:\/\/github\.com\/lisyoen\/photodedup\/releases\//.test(url)) {
+    return;
+  }
+  await shell.openExternal(url);
+});
+
+ipcMain.handle("update:start", async () => {
+  if (updateInProgress) {
+    return { ok: false, error: "update already in progress" };
+  }
+  if (!lastUpdateStatus?.updateAvailable) {
+    return { ok: false, error: "no update available" };
+  }
+  if (!isSourceInstall(repoRoot(), app.isPackaged)) {
+    return { ok: false, error: "automatic update is available only for source installs" };
+  }
+
+  updateInProgress = true;
+  try {
+    const result = await runSourceUpdate({
+      repoRoot: repoRoot(),
+      log: appendShellLog,
+      onProgress: sendUpdateProgress,
+    });
+    return result.ok ? { ok: true } : { ok: false, error: result.error };
+  } finally {
+    updateInProgress = false;
+  }
+});
+
+ipcMain.handle("update:restart", () => {
+  app.relaunch();
+  app.exit();
+});
+
 async function createMainWindow(): Promise<void> {
   if (!sidecar.isRunning) {
     sidecarInfo = await sidecar.start();
@@ -201,6 +281,7 @@ async function createMainWindow(): Promise<void> {
     appDirname: __dirname,
   });
   await mainWindow.loadFile(rendererDist);
+  void checkForUpdatesAfterLoad();
   mainWindow.on("close", () => {
     if (isQuitting) {
       return;

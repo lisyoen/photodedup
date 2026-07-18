@@ -27,6 +27,8 @@ import {
   type GroupListOptions,
   type GroupSortFilter,
   type GroupStatusFilter,
+  type RendererUpdateStatus,
+  type RendererUpdateProgress,
   type Settings,
   type ScanStatus
 } from "./lib/api";
@@ -63,6 +65,15 @@ const ERROR_TOAST_TIMEOUT_MS = 5000;
 const HOURS_TO_MS = 60 * 60 * 1000;
 const SHORTCUT_PRESS_MS = 150;
 const THUMBNAIL_ZOOM_STEP = 1.15;
+type AvailableUpdateStatus = RendererUpdateStatus & {
+  latest: string;
+  htmlUrl: string;
+  updateAvailable: true;
+};
+
+function isAvailableUpdateStatus(update: RendererUpdateStatus | null): update is AvailableUpdateStatus {
+  return update?.updateAvailable === true && update.latest !== null && update.htmlUrl !== null;
+}
 
 export default function App() {
   const { t } = useT();
@@ -118,6 +129,11 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const [includeOnlineOnlyDraft, setIncludeOnlineOnlyDraft] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pressedGroupAction, setPressedGroupAction] = useState<GroupAction | null>(null);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<RendererUpdateStatus | null>(null);
+  const [updateModalOpen, setUpdateModalOpen] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<RendererUpdateProgress | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
   const initialLoadDone = useRef(false);
   const toastTimer = useRef<number | undefined>();
   const shortcutPressTimer = useRef<number | undefined>();
@@ -127,8 +143,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const applyConfirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const applyModalRef = useRef<HTMLDivElement | null>(null);
   const settingsModalRef = useRef<HTMLDivElement | null>(null);
+  const updateModalRef = useRef<HTMLDivElement | null>(null);
   const cacheClearConfirmModalRef = useRef<HTMLDivElement | null>(null);
   const cacheClearConfirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const updateDismissed = useRef(false);
   const settingsOpenScanFolders = useRef<string[]>(scanFolders);
   const activeScanIdRef = useRef<string | null>(null);
   const settingsSyncReady = useRef(false);
@@ -163,6 +181,24 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     };
   }, [groups]);
   const applyDisabled = applyScope.groupIds.length === 0;
+  const availableUpdate = isAvailableUpdateStatus(updateStatus) ? updateStatus : null;
+  const displayedVersion = formatVersion(updateStatus?.current ?? appVersion ?? null);
+  const versionBadgeLabel = updateStatus?.updateAvailable && updateStatus.latest !== null
+    ? t("update.versionBadge.available", {
+      current: displayedVersion,
+      latest: formatVersion(updateStatus.latest),
+    })
+    : updateStatus?.latest
+      ? t("update.versionBadge.currentLatest", {
+        current: displayedVersion,
+        latest: formatVersion(updateStatus.latest),
+      })
+      : displayedVersion;
+  const versionBadgeTitle = updateStatus?.updateAvailable
+    ? t("update.versionBadge.updateTitle")
+    : updateStatus?.latest
+      ? t("update.versionBadge.latestTitle")
+      : t("update.versionBadge.checkFailedTitle");
 
   const updateThumbnailZoom = useCallback((updater: (current: number) => number) => {
     setThumbnailZoom((current) => {
@@ -315,6 +351,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
           cacheClearConfirmOpen ? cacheClearConfirmModalRef.current : null,
           applyOpen ? applyModalRef.current : null,
           settingsOpen ? settingsModalRef.current : null,
+          updateModalOpen ? updateModalRef.current : null,
         ])) {
           event.preventDefault();
           runPrimaryKeyboardAction();
@@ -335,12 +372,15 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }, [
     applyDisabled,
     applyOpen,
+    availableUpdate,
     cacheClearConfirmOpen,
     groupActionsDisabled,
     helpOpen,
     settingsOpen,
     settingsSaving,
     cacheClearing,
+    updateBusy,
+    updateModalOpen,
     updateThumbnailZoom,
   ]);
 
@@ -374,6 +414,49 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       void startBackgroundScan("tray");
     });
   }, [startBackgroundScan]);
+
+  useEffect(() => {
+    let cancelled = false;
+    window.shell?.getAppVersion?.()
+      .then((version) => {
+        if (!cancelled) setAppVersion(version);
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    function showUpdateStatus(update: RendererUpdateStatus | null) {
+      if (!update || cancelled) return;
+      setUpdateStatus(update);
+      if (update.updateAvailable) {
+        setUpdateProgress(null);
+        if (!updateDismissed.current) setUpdateModalOpen(true);
+      }
+    }
+
+    const removeAvailableListener = window.shell?.onUpdateAvailable?.((update) => {
+      showUpdateStatus(update);
+    });
+    const removeProgressListener = window.shell?.onUpdateProgress?.((progress) => {
+      if (cancelled) return;
+      setUpdateProgress(progress);
+      setUpdateBusy(progress.status === "running");
+    });
+    window.shell?.getUpdateAvailability?.()
+      .then(showUpdateStatus)
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+      removeAvailableListener?.();
+      removeProgressListener?.();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -675,7 +758,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
 
   useGroupShortcuts({
     disabled: groupActionsDisabled,
-    modalOpen: applyOpen || settingsOpen || helpOpen,
+    modalOpen: applyOpen || settingsOpen || helpOpen || (updateModalOpen && availableUpdate !== null),
     onAction: (action) => triggerGroupAction(action, "shortcut"),
     onNavigate: navigateGroup,
   });
@@ -754,6 +837,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
 
   function runPrimaryKeyboardAction() {
     if (helpOpen) return;
+    if (updateModalOpen && availableUpdate) {
+      if (!updateBusy) void handleUpdateConfirm();
+      return;
+    }
     if (cacheClearConfirmOpen) {
       if (!cacheClearing) void handleCacheClearConfirm();
       return;
@@ -772,6 +859,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }
 
   function runCancelKeyboardAction() {
+    if (updateModalOpen && availableUpdate) {
+      if (!updateBusy) dismissUpdateForSession();
+      return;
+    }
     if (cacheClearConfirmOpen) {
       setCacheClearConfirmOpen(false);
       return;
@@ -793,6 +884,41 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     setApplyOpen(false);
     if (restoreFocus) {
       applyTriggerButtonRef.current?.focus();
+    }
+  }
+
+  function dismissUpdateForSession() {
+    updateDismissed.current = true;
+    setUpdateModalOpen(false);
+    setUpdateProgress(null);
+    setUpdateBusy(false);
+  }
+
+  async function handleUpdateConfirm() {
+    if (!availableUpdate) return;
+    if (!availableUpdate.isSourceInstall) {
+      await window.shell?.openReleasePage?.(availableUpdate.htmlUrl);
+      dismissUpdateForSession();
+      return;
+    }
+    if (!window.shell?.startUpdate) {
+      return;
+    }
+
+    setUpdateBusy(true);
+    setUpdateProgress({
+      status: "running",
+      stage: { id: "starting", label: t("update.status.starting") },
+    });
+    const result = await window.shell.startUpdate();
+    if (!result.ok) {
+      setUpdateBusy(false);
+      setUpdateProgress((current) => ({
+        status: "failed",
+        stage: current?.stage ?? { id: "unknown", label: t("update.status.failed") },
+        error: result.error,
+        logPath: current?.logPath,
+      }));
     }
   }
 
@@ -942,13 +1068,24 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
           <button className="folder-button" onClick={handleSelectFolder} disabled={busy || scanRunning}>
             {t("app.selectFolder")}
           </button>
-              <button
-                className="icon-button"
-                onClick={() => {
-                  settingsOpenScanFolders.current = scanFolders;
-                  setSettingsOpen(true);
-                }}
-                aria-label={t("settings.open")}
+          <button
+            type="button"
+            className={`version-badge ${availableUpdate ? "available" : "current"}`}
+            onClick={() => {
+              if (availableUpdate) setUpdateModalOpen(true);
+            }}
+            title={versionBadgeTitle}
+            aria-disabled={availableUpdate ? undefined : true}
+          >
+            {versionBadgeLabel}
+          </button>
+          <button
+            className="icon-button"
+            onClick={() => {
+              settingsOpenScanFolders.current = scanFolders;
+              setSettingsOpen(true);
+            }}
+            aria-label={t("settings.open")}
             title={t("settings.open")}
           >
             ⚙
@@ -1338,6 +1475,62 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         </div>
       )}
 
+      {updateModalOpen && availableUpdate && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="update-title">
+          <div className="modal update-modal" ref={updateModalRef}>
+            <h2 id="update-title">
+              {t("update.title", { latest: `v${availableUpdate.latest}`, current: `v${availableUpdate.current}` })}
+            </h2>
+            <div className="modal-body">
+              <p>{t(availableUpdate.isSourceInstall ? "update.body.source" : "update.body.packaged")}</p>
+              <a
+                href={availableUpdate.htmlUrl}
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  if (!window.shell?.openReleasePage) return;
+                  event.preventDefault();
+                  void window.shell.openReleasePage(availableUpdate.htmlUrl);
+                }}
+              >
+                {t("update.releaseNotes")}
+              </a>
+              {updateProgress && (
+                <div className={`update-status ${updateProgress.status}`} role="status">
+                  <strong>{t(`update.status.${updateProgress.status}` as const)}</strong>
+                  <span>{updateProgress.stage.label}</span>
+                  {updateProgress.status === "failed" && (
+                    <span>
+                      {t("update.status.failureDetail", {
+                        stage: updateProgress.stage.label,
+                        logPath: updateProgress.logPath ?? "-"
+                      })}
+                    </span>
+                  )}
+                  {updateProgress.error && <code>{updateProgress.error}</code>}
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              {updateProgress?.status === "succeeded" ? (
+                <button onClick={() => void window.shell?.restartAfterUpdate?.()}>
+                  {t("update.restart")}
+                </button>
+              ) : (
+                <>
+                  <button onClick={() => void handleUpdateConfirm()} disabled={updateBusy}>
+                    {t(availableUpdate.isSourceInstall ? "update.install" : "update.openReleasePage")}
+                  </button>
+                  <button onClick={dismissUpdateForSession} disabled={updateBusy}>
+                    {t("update.later")}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {cacheClearConfirmOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cache-clear-title">
           <div className="modal confirm-modal" ref={cacheClearConfirmModalRef}>
@@ -1501,6 +1694,11 @@ function scanSkippedSummary(status: ScanStatus, t: ReturnType<typeof useT>["t"])
 
 function sameScanFolders(left: string[], right: string[]) {
   return left.length === right.length && left.every((folder, index) => folder === right[index]);
+}
+
+function formatVersion(version: string | null): string {
+  if (!version) return "v-";
+  return version.startsWith("v") ? version : `v${version}`;
 }
 
 function buildSettings(
