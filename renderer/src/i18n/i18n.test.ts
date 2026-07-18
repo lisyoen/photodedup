@@ -28,6 +28,12 @@ describe("i18n dictionaries", () => {
     }
   });
 
+  it("uses the public product name as the app title in every locale", () => {
+    for (const [locale, dictionary] of Object.entries({ en, ko, ja })) {
+      expect(dictionary["app.title"], `${locale} app.title`).toBe("PhotoDedup");
+    }
+  });
+
   it("exposes native language labels", () => {
     expect(LANGUAGES).toEqual([
       { code: "en", label: "English" },

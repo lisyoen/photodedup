@@ -174,6 +174,38 @@ describe("HttpDataSource", () => {
     });
   });
 
+  it("loads and clears cache with X-Api-Token", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(jsonResponse({
+        cache_dir: "C:\\Data\\cache",
+        snapshot_count: 2,
+        snapshot_bytes: 123,
+      }))
+      .mockResolvedValueOnce(jsonResponse({ removed: 2 }));
+    const dataSource = new HttpDataSource({ port: 49152, token: "secret-token" });
+
+    await expect(dataSource.getCacheInfo()).resolves.toEqual({
+      cache_dir: "C:\\Data\\cache",
+      snapshot_count: 2,
+      snapshot_bytes: 123,
+    });
+    await expect(dataSource.clearCache()).resolves.toEqual({ removed: 2 });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "http://127.0.0.1:49152/cache/info", {
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Token": "secret-token",
+      },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "http://127.0.0.1:49152/cache/clear", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Api-Token": "secret-token",
+      },
+    });
+  });
+
   it("sends X-Api-Token when loading thumbnails", async () => {
     URL.createObjectURL = vi.fn(() => "blob:thumb");
     const createObjectUrl = vi.mocked(URL.createObjectURL);

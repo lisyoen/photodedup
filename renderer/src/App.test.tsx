@@ -962,7 +962,7 @@ describe("App settings", () => {
       extensions: ["jpg", "jpeg", "png", "heic", "webp"],
       cleanup_mode: "trash",
     });
-    vi.spyOn(MockDataSource.prototype, "putSettings").mockImplementation(async (settings) => settings);
+    const putSettings = vi.spyOn(MockDataSource.prototype, "putSettings").mockImplementation(async (settings) => settings);
     const startScan = vi.spyOn(MockDataSource.prototype, "startScan")
       .mockResolvedValueOnce({
         scan_id: "active-scan",
@@ -1000,7 +1000,13 @@ describe("App settings", () => {
     folderInput.dispatchEvent(new Event("input", { bubbles: true }));
     await settle();
     getButton("Add").click();
-    await settle();
+    await waitUntil(() =>
+      putSettings.mock.calls.some(([settings]) =>
+        settings.scan_folders?.length === 2 &&
+        settings.scan_folders.includes("E:\\Camera Roll")
+      ) &&
+      document.body.textContent?.includes("E:\\Camera Roll") === true
+    );
     getButton("Save settings").click();
 
     await waitUntil(() => cancelScan.mock.calls.length === 1 && startScan.mock.calls.length === 2);
@@ -1136,6 +1142,51 @@ describe("App settings", () => {
     expect(putSettings).toHaveBeenCalledWith(expect.objectContaining({
       include_online_only: true,
     }));
+  });
+
+  it("shows cache location and clears only after confirmation", async () => {
+    vi.spyOn(MockDataSource.prototype, "getCacheInfo")
+      .mockResolvedValueOnce({
+        cache_dir: "C:\\Users\\lisyo\\AppData\\Local\\Temp\\photo-dedup\\cache",
+        snapshot_count: 2,
+        snapshot_bytes: 2048,
+      })
+      .mockResolvedValueOnce({
+        cache_dir: "C:\\Users\\lisyo\\AppData\\Local\\Temp\\photo-dedup\\cache",
+        snapshot_count: 0,
+        snapshot_bytes: 0,
+      });
+    const clearCache = vi.spyOn(MockDataSource.prototype, "clearCache").mockResolvedValue({ removed: 2 });
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await settle();
+    getButton("Open settings").click();
+    await waitUntil(() => {
+      const input = document.querySelector(".cache-path-row input");
+      return input instanceof HTMLInputElement && input.value === "C:\\Users\\lisyo\\AppData\\Local\\Temp\\photo-dedup\\cache";
+    });
+    expect(document.body.textContent).toContain("2 group list snapshots (2.00 KB)");
+
+    getButton("Clear cache").click();
+    await waitUntil(() => document.body.textContent?.includes("Clear group list cache") === true);
+    getButton("Cancel").click();
+    await waitUntil(() => document.body.textContent?.includes("Clear group list cache") === false);
+    expect(clearCache).not.toHaveBeenCalled();
+
+    getButton("Clear cache").click();
+    await waitUntil(() => document.body.textContent?.includes("Photo files, scan data (manifest), and review completion history are kept") === true);
+    getButton("Confirm").click();
+
+    await waitUntil(() =>
+      clearCache.mock.calls.length === 1 &&
+      document.body.textContent?.includes("Cache cleared. Removed 2 snapshots.") === true
+    );
+    expect(document.body.textContent).toContain("0 group list snapshots (0 B)");
   });
 
   it("automatically dismisses an info toast after its timeout", async () => {
@@ -1276,59 +1327,7 @@ describe("App settings", () => {
     expect(document.body.textContent).toContain("D");
   });
 
-  it("keeps selected photo cards selected after applying a selected-photo action", async () => {
-    saveStoredScanFolders(["D:\\Selected Photos"]);
-    saveStoredQuickSelect("false");
-    const applyGroupAction = vi.spyOn(MockDataSource.prototype, "applyGroupAction");
-    const updateImage = vi.spyOn(MockDataSource.prototype, "updateImage");
-
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-
-    await waitUntil(() => document.body.textContent?.includes("Group #184") === true);
-    const cards = getPhotoCards();
-    ctrlClick(cards[0]);
-    ctrlClick(cards[1]);
-    await settle();
-
-    dispatchShortcut("KeyA");
-    await waitUntil(() => updateImage.mock.calls.length === 2);
-    await settle();
-
-    expect(applyGroupAction).not.toHaveBeenCalled();
-    expect(updateImage.mock.calls.map((call) => call[0])).toEqual([1, 2]);
-    expect(updateImage.mock.calls.map((call) => call[1])).toEqual(["keep", "delete"]);
-    expect(document.body.textContent).toContain("Group #184");
-    expect(document.querySelectorAll(".photo-card.selected")).toHaveLength(2);
-  });
-
-  it("opens compare view with C for two selected photos", async () => {
-    saveStoredScanFolders(["D:\\Compare Selected"]);
-
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-
-    await waitUntil(() => document.body.textContent?.includes("Group #184") === true);
-    const cards = getPhotoCards();
-    ctrlClick(cards[0]);
-    ctrlClick(cards[1]);
-    await settle();
-
-    const event = dispatchShortcut("KeyC");
-    await waitUntil(() => document.querySelector(".compare-modal") !== null);
-
-    expect(event.defaultPrevented).toBe(true);
-    expect(document.querySelectorAll(".compare-tile")).toHaveLength(2);
-    expect(document.body.textContent).toContain("Compare photos");
-  });
-
-  it("toggles keep marks from photo card clicks and keeps compare selection on Ctrl click", async () => {
+  it("toggles keep marks from photo card clicks including Ctrl click", async () => {
     saveStoredScanFolders(["D:\\Photo Click"]);
     const updateImage = vi.spyOn(MockDataSource.prototype, "updateImage");
 
@@ -1345,7 +1344,6 @@ describe("App settings", () => {
     await waitUntil(() => updateImage.mock.calls.length === 1);
     await waitUntil(() => document.querySelectorAll(".photo-card .mark-chip.keep").length === 2);
     expect(updateImage).toHaveBeenLastCalledWith(2, "keep");
-    expect(document.querySelectorAll(".photo-card.selected")).toHaveLength(0);
 
     cards[1].click();
     await waitUntil(() => updateImage.mock.calls.length === 2);
@@ -1353,12 +1351,12 @@ describe("App settings", () => {
     expect(updateImage).toHaveBeenLastCalledWith(2, "none");
 
     ctrlClick(cards[1]);
-    await settle();
-    expect(updateImage).toHaveBeenCalledTimes(2);
-    expect(document.querySelectorAll(".photo-card.selected")).toHaveLength(1);
+    await waitUntil(() => updateImage.mock.calls.length === 3);
+    await waitUntil(() => document.querySelectorAll(".photo-card .mark-chip.keep").length === 2);
+    expect(updateImage).toHaveBeenLastCalledWith(2, "keep");
   });
 
-  it("uses Enter and Space on focused photo cards for keep marks unless Ctrl selects for compare", async () => {
+  it("uses Enter and Space on focused photo cards for keep marks", async () => {
     saveStoredScanFolders(["D:\\Photo Keyboard"]);
     const updateImage = vi.spyOn(MockDataSource.prototype, "updateImage");
 
@@ -1378,9 +1376,9 @@ describe("App settings", () => {
     expect(updateImage).toHaveBeenLastCalledWith(2, "keep");
 
     dispatchKey(cards[1], " ", { ctrlKey: true });
-    await settle();
-    expect(updateImage).toHaveBeenCalledTimes(1);
-    expect(document.querySelectorAll(".photo-card.selected")).toHaveLength(1);
+    await waitUntil(() => updateImage.mock.calls.length === 2);
+    await waitUntil(() => document.querySelectorAll(".photo-card .mark-chip.keep").length === 1);
+    expect(updateImage).toHaveBeenLastCalledWith(2, "none");
   });
 
   it("does not double toggle keep when the keep MarkBox is clicked", async () => {
@@ -1402,55 +1400,6 @@ describe("App settings", () => {
     await waitUntil(() => document.querySelectorAll(".photo-card .mark-chip.keep").length === 2);
 
     expect(updateImage).toHaveBeenCalledTimes(1);
-    expect(updateImage).toHaveBeenCalledWith(2, "keep");
-    expect(document.querySelectorAll(".photo-card.selected")).toHaveLength(0);
-  });
-
-  it("opens compare view with recommended and next photo when nothing is selected", async () => {
-    saveStoredScanFolders(["D:\\Compare Default"]);
-
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-
-    await waitUntil(() => document.body.textContent?.includes("Group #184") === true);
-    getButton("Compare").click();
-    await waitUntil(() => document.querySelector(".compare-modal") !== null);
-
-    const tiles = getCompareTiles();
-    expect(tiles).toHaveLength(2);
-    expect(tiles[0].textContent).toContain("G01_IMG_0420.HEIC");
-    expect(tiles[1].textContent).toContain("G01_IMG_0420-copy.JPG");
-  });
-
-  it("syncs compare mark toggles, closes with Esc, and guards group shortcuts while open", async () => {
-    saveStoredScanFolders(["D:\\Compare Marks"]);
-    const updateImage = vi.spyOn(MockDataSource.prototype, "updateImage");
-    const applyGroupAction = vi.spyOn(MockDataSource.prototype, "applyGroupAction");
-
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-
-    await waitUntil(() => document.body.textContent?.includes("Group #184") === true);
-    getButton("Compare").click();
-    await waitUntil(() => document.querySelector(".compare-modal") !== null);
-
-    dispatchShortcut("KeyD");
-    await settle();
-    expect(applyGroupAction).not.toHaveBeenCalled();
-
-    getCompareTiles()[1].click();
-    await waitUntil(() => updateImage.mock.calls.length === 1);
-    await waitUntil(() => document.querySelectorAll(".photo-card .mark-chip.keep").length === 2);
-
-    dispatchShortcut("Escape");
-    await waitUntil(() => document.querySelector(".compare-modal") === null);
-
     expect(updateImage).toHaveBeenCalledWith(2, "keep");
   });
 
@@ -1780,6 +1729,7 @@ describe("App settings", () => {
 
     await waitUntil(() => applyMarkedDeletes.mock.calls.length === 1);
     expect(enter.defaultPrevented).toBe(true);
+    await waitUntil(() => document.querySelector("[aria-labelledby='apply-title'] .modal") === null);
 
     const putSettings = vi.spyOn(MockDataSource.prototype, "putSettings").mockImplementation(async (settings) => settings);
     getButton("Open settings").click();
@@ -2126,14 +2076,6 @@ function getPhotoCards(): HTMLElement[] {
 
 function getPhotoGrid(): HTMLElement {
   return getRequiredElement(".photo-grid");
-}
-
-function getCompareTiles(): HTMLElement[] {
-  const tiles = Array.from(document.querySelectorAll(".compare-tile"));
-  if (tiles.length === 0 || !tiles.every((tile): tile is HTMLElement => tile instanceof HTMLElement)) {
-    throw new Error("Compare tiles not found");
-  }
-  return tiles;
 }
 
 function getButton(name: string): HTMLButtonElement {

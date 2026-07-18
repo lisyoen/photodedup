@@ -2,7 +2,7 @@ import en from "./en";
 
 const ko: Record<keyof typeof en, string> = {
   "app.product": "Photo Dedup Desktop",
-  "app.title": "그룹 검토 목업",
+  "app.title": "PhotoDedup",
   "app.settings": "설정",
   "app.selectFolder": "폴더 선택",
   "app.applyAll": "전체 적용",
@@ -44,12 +44,6 @@ const ko: Record<keyof typeof en, string> = {
   "action.applyRecommended": "추천",
   "action.keepAll": "모두 보관",
   "action.deleteAll": "모두 삭제",
-  "compare.open": "비교",
-  "compare.title": "사진 비교",
-  "compare.close": "비교 뷰 닫기",
-  "compare.limited": "선택한 사진 중 앞 4장만 표시합니다.",
-  "compare.date": "일시 {date}",
-  "compare.similarity": "유사도 {similarity}",
   "photo.quality": "품질 {score}",
   "photo.recommended": "추천",
   "mark.aria": "{fileName} 표시",
@@ -67,12 +61,14 @@ const ko: Record<keyof typeof en, string> = {
   "apply.note": "보관 및 미결정 사진은 변경하지 않습니다.",
   "common.cancel": "취소",
   "common.close": "닫기",
+  "common.confirm": "확인",
   "common.add": "추가",
   "common.remove": "삭제",
   "toast.applyComplete": "{mode} 완료: {count}장 삭제, {failed}장 실패({size}). 보관/없음 {untouched}장은 변경하지 않았습니다.",
   "toast.applyNoTargets": "처리할 항목이 없습니다.",
   "toast.applyScope": "적용 {applied}그룹, 미분류 제외 {excluded}그룹.",
   "toast.settingsSaved": "설정을 저장했습니다.",
+  "toast.cacheCleared": "캐시를 비웠습니다. 스냅샷 {count}개 삭제.",
   "toast.rescanStarted": "유사도 기준을 저장했습니다. 재스캔을 시작했습니다.",
   "toast.scanFolderChildrenRemoved": "상위 폴더에 포함된 하위 폴더 {count}개 제거",
   "toast.scanFolderCoveredByParent": "이미 상위 폴더에 포함됨",
@@ -90,6 +86,13 @@ const ko: Record<keyof typeof en, string> = {
   "settings.includeOnlineOnly": "온라인 전용 파일 포함",
   "settings.includeOnlineOnlyHelp": "iCloud/OneDrive 온라인 전용 원본도 스캔합니다.",
   "settings.includeOnlineOnlyWarning": "켜면 온라인 전용 원본을 다운로드하므로 디스크 용량과 시간이 크게 소요될 수 있습니다.",
+  "settings.cache": "캐시",
+  "settings.cacheDir": "캐시 위치",
+  "settings.cacheLoading": "불러오는 중...",
+  "settings.cacheSnapshotSummary": "그룹 목록 스냅샷 {count}개({size})",
+  "settings.clearCache": "캐시 비우기",
+  "settings.clearCacheConfirmTitle": "그룹 목록 캐시 비우기",
+  "settings.clearCacheConfirmBody": "그룹 목록 캐시를 비웁니다. 사진 파일·스캔 데이터(manifest)·리뷰 완료 기록은 유지되며, 다음 스캔/조회 시 캐시가 다시 생성됩니다.",
   "settings.similarityThreshold": "유사도 기준",
   "settings.similarityThresholdHelp": "높을수록 엄격하며 일반적으로 그룹 수가 줄어듭니다.",
   "settings.scanFolders": "스캔 폴더",
@@ -132,9 +135,9 @@ const ko: Record<keyof typeof en, string> = {
   "help.display.title": "표시 안내",
   "help.display.badges": "추천 배지는 자동 keep 추천 이미지를 표시하고, 품질 라벨은 엔진 품질 점수를 표시합니다.",
   "help.display.groupHeader": "그룹 헤더에는 사진 수, 최대 유사도, 예상 회수 용량, 파생 선택 상태가 표시됩니다.",
-  "help.display.marks": "사진을 클릭하면 보관 표시가 토글됩니다. Ctrl+클릭(macOS는 Command+클릭)은 비교할 사진을 선택합니다. 각 사진은 표시 행에서도 keep, delete, none으로 바꿀 수 있습니다.",
+  "help.display.marks": "사진을 클릭하면 보관 표시가 토글됩니다. 각 사진은 표시 행에서도 keep, delete, none으로 바꿀 수 있습니다.",
   "help.display.actions": "그룹 액션은 선택된 그룹에 추천 적용, 모두 보관, 모두 삭제를 적용합니다.",
-  "help.display.shortcuts": "그룹 선택 상태에서 A는 추천, S는 모두 보관, D는 모두 삭제를 실행합니다. 포커스된 사진의 Enter/Space는 보관 표시를 토글하고, Ctrl+Enter/Ctrl+Space는 비교 선택을 토글합니다. Esc는 다이얼로그를 취소하거나 닫으며, Ctrl+휠/Ctrl++/Ctrl+-는 상세 썸네일을 확대·축소합니다."
+  "help.display.shortcuts": "그룹 선택 상태에서 A는 추천, S는 모두 보관, D는 모두 삭제를 실행합니다. 포커스된 사진의 Enter/Space는 보관 표시를 토글합니다. Esc는 다이얼로그를 취소하거나 닫으며, Ctrl+휠/Ctrl++/Ctrl+-는 상세 썸네일을 확대·축소합니다."
 };
 
 export default ko;

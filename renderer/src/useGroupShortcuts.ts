@@ -26,28 +26,15 @@ export function useGroupShortcuts({
   disabled,
   modalOpen,
   onAction,
-  onCompare,
   onNavigate,
 }: {
   disabled: boolean;
   modalOpen: boolean;
   onAction: (action: GroupAction) => void;
-  onCompare?: () => void;
   onNavigate?: (direction: "previous" | "next") => void;
 }) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.code === "KeyC") {
-        if (disabled || modalOpen) return;
-        if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
-        if (event.isComposing || event.repeat) return;
-        if (isEditableShortcutTarget(event.target)) return;
-
-        event.preventDefault();
-        onCompare?.();
-        return;
-      }
-
       if (event.code === "ArrowUp" || event.code === "ArrowDown") {
         if (disabled || modalOpen) return;
         if (event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
@@ -72,5 +59,5 @@ export function useGroupShortcuts({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [disabled, modalOpen, onAction, onCompare, onNavigate]);
+  }, [disabled, modalOpen, onAction, onNavigate]);
 }

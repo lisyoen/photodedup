@@ -244,6 +244,29 @@ def create_app(data_dir: str | Path, token: str) -> FastAPI:
         print(f"group snapshot loaded path={snapshot_path}", file=sys.stderr, flush=True)
         return payload
 
+    @app.get("/cache/info", operation_id="getCacheInfo")
+    def get_cache_info() -> dict[str, object]:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        snapshots = _group_snapshot_files(cache_dir)
+        return {
+            "cache_dir": str(cache_dir),
+            "snapshot_count": len(snapshots),
+            "snapshot_bytes": sum(path.stat().st_size for path in snapshots),
+        }
+
+    @app.post("/cache/clear", operation_id="clearCache")
+    def clear_cache() -> dict[str, object]:
+        removed = 0
+        for snapshot_path in _group_snapshot_files(cache_dir):
+            try:
+                snapshot_path.unlink()
+                removed += 1
+            except FileNotFoundError:
+                pass
+            except OSError as exc:
+                print(f"group snapshot clear failed path={snapshot_path} error={exc}", file=sys.stderr, flush=True)
+        return {"removed": removed}
+
     @app.get("/groups/{id}", operation_id="getGroup")
     def get_group(id: str, roots: list[str] | None = Query(None)) -> dict[str, object]:
         manifest = open_manifest()
@@ -688,28 +711,31 @@ def _run_cleanup_job(job: Job, db_path: Path, mode: str, group_ids: list[int] | 
         quarantine_dir = dated_quarantine_dir(db_path.parent / "quarantine")
         deleted = 0
         failed = 0
+        already_missing = 0
         changed_group_ids: set[int] = set()
         for index, row in enumerate(rows, start=1):
             source = Path(row["path"])
             try:
-                if mode == "trash":
-                    quarantine_dir.mkdir(parents=True, exist_ok=True)
-                    target = quarantine_dir / source.name
-                    suffix = 1
-                    while target.exists():
-                        target = quarantine_dir / f"{source.stem}_{suffix}{source.suffix}"
-                        suffix += 1
-                    shutil.move(str(source), str(target))
-                    manifest.conn.execute(
-                        "UPDATE images SET is_quarantined = 1, resolved_at = ? WHERE id = ?",
-                        (utc_now(), int(row["id"])),
-                    )
+                if not source.exists():
+                    already_missing += 1
                 else:
-                    source.unlink()
-                    manifest.conn.execute(
-                        "UPDATE images SET is_quarantined = 1, resolved_at = ? WHERE id = ?",
-                        (utc_now(), int(row["id"])),
-                    )
+                    try:
+                        if mode == "trash":
+                            quarantine_dir.mkdir(parents=True, exist_ok=True)
+                            target = quarantine_dir / source.name
+                            suffix = 1
+                            while target.exists():
+                                target = quarantine_dir / f"{source.stem}_{suffix}{source.suffix}"
+                                suffix += 1
+                            shutil.move(str(source), str(target))
+                        else:
+                            source.unlink()
+                    except FileNotFoundError:
+                        already_missing += 1
+                manifest.conn.execute(
+                    "UPDATE images SET is_quarantined = 1, resolved_at = ? WHERE id = ?",
+                    (utc_now(), int(row["id"])),
+                )
                 manifest.conn.commit()
                 deleted += 1
                 group_id = row["group_id"] if "group_id" in row.keys() else None
@@ -724,7 +750,7 @@ def _run_cleanup_job(job: Job, db_path: Path, mode: str, group_ids: list[int] | 
             job.phase = "done"
             job.done = total
             job.total = total
-            job.summary = {"deleted": deleted, "failed": failed}
+            job.summary = {"deleted": deleted, "failed": failed, "already_missing": already_missing}
     except Exception as exc:
         with job.lock:
             job.status = "error"
@@ -873,6 +899,12 @@ def _normalize_scope_path(path: str) -> str:
 def _snapshot_path(cache_dir: Path, roots: list[str]) -> Path:
     digest = hashlib.sha256(json.dumps(_normalized_root_set(roots), ensure_ascii=False).encode("utf-8")).hexdigest()[:16]
     return cache_dir / f"groups-{digest}.json"
+
+
+def _group_snapshot_files(cache_dir: Path) -> list[Path]:
+    if not cache_dir.exists():
+        return []
+    return sorted(path for path in cache_dir.glob("groups-*.json") if path.is_file())
 
 
 def _normalized_root_set(roots: list[str]) -> list[str]:

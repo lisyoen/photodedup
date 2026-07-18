@@ -8,6 +8,7 @@ import time
 
 from fastapi.testclient import TestClient
 from PIL import Image, ImageDraw, ImageEnhance
+import pytest
 
 from photodedup import api as api_module
 from photodedup.api import create_app
@@ -277,6 +278,44 @@ def test_scan_writes_group_snapshot_and_restart_loads_it(tmp_path: Path) -> None
     assert payload["roots"] == [str(images)]
     assert len(payload["items"]) > 0
     assert payload["items"][0]["group"]["member_count"] >= 2
+
+
+def test_cache_info_and_clear_only_remove_group_snapshots(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    cache_dir = data_dir / "cache"
+    thumbs_dir = data_dir / "thumbs"
+    client = _client(data_dir)
+    cache_dir.mkdir(parents=True)
+    thumbs_dir.mkdir(parents=True)
+    snapshot_a = cache_dir / "groups-a.json"
+    snapshot_b = cache_dir / "groups-b.json"
+    completion_path = cache_dir / "group-completions.json"
+    manifest_path = data_dir / "manifest.db"
+    thumb_path = thumbs_dir / "1.jpg"
+    snapshot_a.write_text("alpha", encoding="utf-8")
+    snapshot_b.write_text("bravo", encoding="utf-8")
+    completion_path.write_text(json.dumps({"completed_group_ids": [1]}), encoding="utf-8")
+    thumb_path.write_text("thumb sentinel", encoding="utf-8")
+
+    info = client.get("/cache/info")
+    cleared = client.post("/cache/clear")
+    after = client.get("/cache/info")
+
+    assert info.status_code == 200
+    assert info.json() == {
+        "cache_dir": str(cache_dir),
+        "snapshot_count": 2,
+        "snapshot_bytes": len("alpha") + len("bravo"),
+    }
+    assert cleared.status_code == 200
+    assert cleared.json() == {"removed": 2}
+    assert after.json()["snapshot_count"] == 0
+    assert not snapshot_a.exists()
+    assert not snapshot_b.exists()
+    assert completion_path.exists()
+    assert json.loads(completion_path.read_text(encoding="utf-8"))["completed_group_ids"] == [1]
+    assert manifest_path.exists()
+    assert thumb_path.exists()
 
 
 def test_new_scan_groups_start_uncompleted_without_user_marks(tmp_path: Path, monkeypatch) -> None:
@@ -1003,7 +1042,7 @@ def test_apply_trash_marks_deleted_images_resolved_and_moves_group_to_processed(
     assert started.status_code == 202
     cleanup = _wait_cleanup(client, started.json()["job_id"])
     assert cleanup["status"] == "done"
-    assert cleanup["summary"] == {"deleted": 1, "failed": 0}
+    assert cleanup["summary"] == {"deleted": 1, "failed": 0, "already_missing": 0}
 
     manifest = Manifest(data_dir / "manifest.db")
     try:
@@ -1039,7 +1078,7 @@ def test_apply_permanent_marks_deleted_images_resolved_and_moves_group_to_proces
     assert started.status_code == 202
     cleanup = _wait_cleanup(client, started.json()["job_id"])
     assert cleanup["status"] == "done"
-    assert cleanup["summary"] == {"deleted": 1, "failed": 0}
+    assert cleanup["summary"] == {"deleted": 1, "failed": 0, "already_missing": 0}
 
     manifest = Manifest(data_dir / "manifest.db")
     try:
@@ -1062,6 +1101,34 @@ def test_apply_permanent_marks_deleted_images_resolved_and_moves_group_to_proces
     assert [group["id"] for group in processed.json()["items"]] == [1]
 
 
+@pytest.mark.parametrize("mode", ["trash", "permanent"])
+def test_apply_marks_already_missing_delete_target_resolved(
+    tmp_path: Path,
+    mode: str,
+) -> None:
+    data_dir, delete_file = _seed_apply_group(tmp_path)
+    delete_file.unlink()
+    client = _client(data_dir)
+
+    started = client.post("/apply", json={"mode": mode})
+    assert started.status_code == 202
+    cleanup = _wait_cleanup(client, started.json()["job_id"])
+    assert cleanup["status"] == "done"
+    assert cleanup["summary"] == {"deleted": 1, "failed": 0, "already_missing": 1}
+
+    manifest = Manifest(data_dir / "manifest.db")
+    try:
+        deleted = manifest.conn.execute(
+            "SELECT is_quarantined, resolved_at FROM images WHERE id = 2"
+        ).fetchone()
+        assert deleted["is_quarantined"] == 1
+        assert deleted["resolved_at"] is not None
+        group = manifest.conn.execute("SELECT resolved_at FROM groups WHERE group_id = 1").fetchone()
+        assert group["resolved_at"] is not None
+    finally:
+        manifest.close()
+
+
 def test_apply_group_ids_filters_cleanup_targets(tmp_path: Path) -> None:
     data_dir, files = _seed_two_apply_groups(tmp_path)
     client = _client(data_dir)
@@ -1071,7 +1138,7 @@ def test_apply_group_ids_filters_cleanup_targets(tmp_path: Path) -> None:
     assert started.json()["targets"] == 1
     cleanup = _wait_cleanup(client, started.json()["job_id"])
     assert cleanup["status"] == "done"
-    assert cleanup["summary"] == {"deleted": 1, "failed": 0}
+    assert cleanup["summary"] == {"deleted": 1, "failed": 0, "already_missing": 0}
 
     manifest = Manifest(data_dir / "manifest.db")
     try:
@@ -1094,7 +1161,7 @@ def test_apply_without_group_ids_keeps_existing_all_group_behavior(tmp_path: Pat
     assert started.json()["targets"] == 2
     cleanup = _wait_cleanup(client, started.json()["job_id"])
     assert cleanup["status"] == "done"
-    assert cleanup["summary"] == {"deleted": 2, "failed": 0}
+    assert cleanup["summary"] == {"deleted": 2, "failed": 0, "already_missing": 0}
 
     assert not files[2].exists()
     assert not files[4].exists()

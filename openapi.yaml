@@ -350,6 +350,32 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /cache/info:
+    get:
+      operationId: getCacheInfo
+      summary: Get group snapshot cache information.
+      responses:
+        "200":
+          description: Cache information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CacheInfo"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /cache/clear:
+    post:
+      operationId: clearCache
+      summary: Clear group snapshot cache files.
+      responses:
+        "200":
+          description: Removed snapshot count.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CacheClearResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
 components:
   securitySchemes:
     PdToken:
@@ -737,3 +763,19 @@ components:
           type: string
           enum: [trash, permanent]
           default: trash
+    CacheInfo:
+      type: object
+      required: [cache_dir, snapshot_count, snapshot_bytes]
+      properties:
+        cache_dir:
+          type: string
+        snapshot_count:
+          type: integer
+        snapshot_bytes:
+          type: integer
+    CacheClearResponse:
+      type: object
+      required: [removed]
+      properties:
+        removed:
+          type: integer

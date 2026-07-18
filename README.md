@@ -1,3 +1,5 @@
+English | [한국어](README.ko.md)
+
 # PhotoDedup
 
 PhotoDedup is a desktop app for finding and cleaning up duplicate or visually similar photos. It scans local folders, groups likely duplicates with perceptual hashes, and helps you move unwanted copies to a quarantine folder or the system trash.
@@ -11,6 +13,7 @@ The app is local-first: photos stay on your computer, and scan data is stored in
 - Quality-based keep suggestions using resolution, file size, sharpness, and metadata
 - Move selected files to quarantine or the system trash
 - Restore quarantined files
+- Inspect and clear the group list cache from Settings
 - Korean, English, and Japanese UI labels
 - Electron desktop shell with a local Python FastAPI sidecar
 

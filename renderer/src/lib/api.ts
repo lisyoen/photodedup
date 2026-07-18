@@ -91,6 +91,16 @@ export interface Settings {
   include_online_only?: boolean;
 }
 
+export interface CacheInfo {
+  cache_dir: string;
+  snapshot_count: number;
+  snapshot_bytes: number;
+}
+
+export interface CacheClearResponse {
+  removed: number;
+}
+
 export interface GroupSnapshot {
   version: number;
   generated_at: string;
@@ -122,6 +132,8 @@ export interface DataSource {
   getCleanup(jobId: string): Promise<CleanupStatus>;
   getSettings(): Promise<Settings>;
   putSettings(settings: Settings): Promise<Settings>;
+  getCacheInfo(): Promise<CacheInfo>;
+  clearCache(): Promise<CacheClearResponse>;
   thumbUrl(imageId: number): string | null;
   loadThumbSrc(image: Image): Promise<string>;
   loadFullSrc(image: Image): Promise<string>;
@@ -235,6 +247,14 @@ export class HttpDataSource implements DataSource {
       method: "PUT",
       body: JSON.stringify(settings),
     });
+  }
+
+  getCacheInfo(): Promise<CacheInfo> {
+    return this.request("/cache/info");
+  }
+
+  clearCache(): Promise<CacheClearResponse> {
+    return this.request("/cache/clear", { method: "POST" });
   }
 
   thumbUrl(imageId: number): string {
@@ -449,6 +469,18 @@ export class MockDataSource implements DataSource {
 
   async putSettings(settings: Settings): Promise<Settings> {
     return settings;
+  }
+
+  async getCacheInfo(): Promise<CacheInfo> {
+    return {
+      cache_dir: "mock://cache",
+      snapshot_count: 0,
+      snapshot_bytes: 0,
+    };
+  }
+
+  async clearCache(): Promise<CacheClearResponse> {
+    return { removed: 0 };
   }
 
   thumbUrl(): string | null {

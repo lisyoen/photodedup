@@ -180,6 +180,7 @@ async function createMainWindow(): Promise<void> {
   }
 
   mainWindow = new BrowserWindow({
+    title: "PhotoDedup",
     width: 1280,
     height: 860,
     webPreferences: {

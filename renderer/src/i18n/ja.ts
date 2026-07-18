@@ -2,7 +2,7 @@ import en from "./en";
 
 const ja: Record<keyof typeof en, string> = {
   "app.product": "Photo Dedup Desktop",
-  "app.title": "グループ確認モック",
+  "app.title": "PhotoDedup",
   "app.settings": "設定",
   "app.selectFolder": "フォルダを選択",
   "app.applyAll": "すべて適用",
@@ -44,12 +44,6 @@ const ja: Record<keyof typeof en, string> = {
   "action.applyRecommended": "推奨",
   "action.keepAll": "すべて保持",
   "action.deleteAll": "すべて削除",
-  "compare.open": "比較",
-  "compare.title": "写真を比較",
-  "compare.close": "比較ビューを閉じる",
-  "compare.limited": "選択した写真の先頭4枚を表示しています。",
-  "compare.date": "日時 {date}",
-  "compare.similarity": "類似度 {similarity}",
   "photo.quality": "品質 {score}",
   "photo.recommended": "推奨",
   "mark.aria": "{fileName} のマーク",
@@ -67,12 +61,14 @@ const ja: Record<keyof typeof en, string> = {
   "apply.note": "保持および未選択の写真は変更されません。",
   "common.cancel": "キャンセル",
   "common.close": "閉じる",
+  "common.confirm": "確認",
   "common.add": "追加",
   "common.remove": "削除",
   "toast.applyComplete": "{mode} 完了: {count}枚削除、{failed}枚失敗 ({size})。保持/なしの {untouched}枚は変更されませんでした。",
   "toast.applyNoTargets": "処理する項目はありません。",
   "toast.applyScope": "{applied}グループに適用、未分類 {excluded}グループを除外しました。",
   "toast.settingsSaved": "設定を保存しました。",
+  "toast.cacheCleared": "キャッシュを消去しました。スナップショット {count} 件を削除しました。",
   "toast.rescanStarted": "類似度しきい値を保存しました。再スキャンを開始しました。",
   "toast.scanFolderChildrenRemoved": "親フォルダーに含まれる子フォルダーを {count} 件削除しました。",
   "toast.scanFolderCoveredByParent": "すでに親フォルダーに含まれています。",
@@ -90,6 +86,13 @@ const ja: Record<keyof typeof en, string> = {
   "settings.includeOnlineOnly": "オンライン専用ファイルを含める",
   "settings.includeOnlineOnlyHelp": "iCloud/OneDrive のオンライン専用オリジナルもスキャンします。",
   "settings.includeOnlineOnlyWarning": "有効にするとオンライン専用オリジナルをダウンロードするため、ディスク容量と時間を大きく消費する場合があります。",
+  "settings.cache": "キャッシュ",
+  "settings.cacheDir": "キャッシュの場所",
+  "settings.cacheLoading": "読み込み中...",
+  "settings.cacheSnapshotSummary": "グループ一覧スナップショット {count} 件 ({size})",
+  "settings.clearCache": "キャッシュを消去",
+  "settings.clearCacheConfirmTitle": "グループ一覧キャッシュを消去",
+  "settings.clearCacheConfirmBody": "グループ一覧キャッシュを消去します。写真ファイル、スキャンデータ (manifest)、レビュー完了履歴は保持され、次回のスキャンまたは取得時にキャッシュが再作成されます。",
   "settings.similarityThreshold": "類似度しきい値",
   "settings.similarityThresholdHelp": "高いほど厳しくなり、通常はグループ数が減ります。",
   "settings.scanFolders": "スキャンフォルダー",
@@ -132,9 +135,9 @@ const ja: Record<keyof typeof en, string> = {
   "help.display.title": "表示案内",
   "help.display.badges": "推奨バッジは自動 keep 推奨画像を示し、品質ラベルはエンジンの品質スコアを示します。",
   "help.display.groupHeader": "グループヘッダーには写真数、最大類似度、推定回収容量、派生した選択状態が表示されます。",
-  "help.display.marks": "写真をクリックすると保持マークが切り替わります。Ctrl+クリック（macOS では Command+クリック）は比較用の写真選択です。各写真はマーク行からも keep, delete, none に変更できます。",
+  "help.display.marks": "写真をクリックすると保持マークが切り替わります。各写真はマーク行からも keep, delete, none に変更できます。",
   "help.display.actions": "グループ操作は、選択中のグループに推奨を適用、すべて保持、すべて削除を適用します。",
-  "help.display.shortcuts": "グループを選択した状態で A は推奨、S はすべて保持、D はすべて削除を実行します。フォーカス中の写真で Enter/Space は保持マークを切り替え、Ctrl+Enter/Ctrl+Space は比較選択を切り替えます。Esc はダイアログをキャンセルまたは閉じ、Ctrl+ホイール/Ctrl++/Ctrl+- は詳細サムネイルを拡大・縮小します。"
+  "help.display.shortcuts": "グループを選択した状態で A は推奨、S はすべて保持、D はすべて削除を実行します。フォーカス中の写真で Enter/Space は保持マークを切り替えます。Esc はダイアログをキャンセルまたは閉じ、Ctrl+ホイール/Ctrl++/Ctrl+- は詳細サムネイルを拡大・縮小します。"
 };
 
 export default ja;

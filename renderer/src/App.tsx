@@ -6,8 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent as ReactMouseEvent
+  type KeyboardEvent as ReactKeyboardEvent
 } from "react";
 import { HelpView } from "./HelpView";
 import { useT } from "./i18n";
@@ -23,6 +22,7 @@ import {
   isElectronRuntime,
   placeholderFor,
   type CleanupStatus,
+  type CacheInfo,
   type DataSource,
   type GroupListOptions,
   type GroupSortFilter,
@@ -100,8 +100,8 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [cacheClearConfirmOpen, setCacheClearConfirmOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [compareOpen, setCompareOpen] = useState(false);
   const [applyMode, setApplyMode] = useState<ApplyMode>("trash");
   const [scanFolders, setScanFolders] = useState<string[]>(() => loadScanFolders());
   const [backgroundScanIntervalHours, setBackgroundScanIntervalHours] = useState<BackgroundScanIntervalHours>(
@@ -111,12 +111,13 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const [thumbnailZoom, setThumbnailZoom] = useState(() => loadThumbnailZoom());
   const [scanFolderDraft, setScanFolderDraft] = useState("");
   const [engineSettings, setEngineSettings] = useState<Settings | null>(null);
+  const [cacheInfo, setCacheInfo] = useState<CacheInfo | null>(null);
+  const [cacheClearing, setCacheClearing] = useState(false);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [thresholdDraft, setThresholdDraft] = useState(90);
   const [includeOnlineOnlyDraft, setIncludeOnlineOnlyDraft] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [pressedGroupAction, setPressedGroupAction] = useState<GroupAction | null>(null);
-  const [selectedImageIds, setSelectedImageIds] = useState<number[]>([]);
   const initialLoadDone = useRef(false);
   const toastTimer = useRef<number | undefined>();
   const shortcutPressTimer = useRef<number | undefined>();
@@ -126,6 +127,8 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const applyConfirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const applyModalRef = useRef<HTMLDivElement | null>(null);
   const settingsModalRef = useRef<HTMLDivElement | null>(null);
+  const cacheClearConfirmModalRef = useRef<HTMLDivElement | null>(null);
+  const cacheClearConfirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const settingsOpenScanFolders = useRef<string[]>(scanFolders);
   const activeScanIdRef = useRef<string | null>(null);
   const settingsSyncReady = useRef(false);
@@ -145,11 +148,6 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const scanRunning = scanStatus ? !TERMINAL_SCAN_STATES.has(scanStatus.status) : false;
   const canReview = selected !== null;
   const groupActionsDisabled = selected === null || busy;
-  const selectedImages = selected
-    ? selected.images.filter((image) => selectedImageIds.includes(image.id))
-    : [];
-  const compareImages = useMemo(() => selected ? selectCompareImages(selected, selectedImageIds) : [], [selected, selectedImageIds]);
-  const compareSelectionLimited = selectedImageIds.length > 4;
   const applyScope = useMemo(() => {
     const ids = classifiedGroupIds(groups);
     const scopedGroups = groups.filter(({ group }) => ids.includes(group.id));
@@ -263,20 +261,6 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }, [helpOpen]);
 
   useEffect(() => {
-    if (!compareOpen) return;
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setCompareOpen(false);
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [compareOpen]);
-
-  useEffect(() => {
     const element = photoGridRef.current;
     if (!element) return;
 
@@ -297,6 +281,11 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     if (!applyOpen) return;
     applyConfirmButtonRef.current?.focus();
   }, [applyOpen]);
+
+  useEffect(() => {
+    if (!cacheClearConfirmOpen) return;
+    cacheClearConfirmButtonRef.current?.focus();
+  }, [cacheClearConfirmOpen]);
 
   useLayoutEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
@@ -323,6 +312,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       }
       if (isPrimaryShortcutKey(event)) {
         if (isModalOpenOutsideTarget(event.target, [
+          cacheClearConfirmOpen ? cacheClearConfirmModalRef.current : null,
           applyOpen ? applyModalRef.current : null,
           settingsOpen ? settingsModalRef.current : null,
         ])) {
@@ -345,11 +335,12 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }, [
     applyDisabled,
     applyOpen,
-    compareOpen,
+    cacheClearConfirmOpen,
     groupActionsDisabled,
     helpOpen,
     settingsOpen,
     settingsSaving,
+    cacheClearing,
     updateThumbnailZoom,
   ]);
 
@@ -431,9 +422,13 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
 
     async function refreshSettings() {
       try {
-        const settings = await dataSource.getSettings();
+        const [settings, nextCacheInfo] = await Promise.all([
+          dataSource.getSettings(),
+          dataSource.getCacheInfo(),
+        ]);
         if (cancelled) return;
         setEngineSettings(settings);
+        setCacheInfo(nextCacheInfo);
         setThresholdDraft(settings.threshold);
         setIncludeOnlineOnlyDraft(settings.include_online_only ?? false);
       } catch (error) {
@@ -621,30 +616,6 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   async function handleGroupAction(action: GroupAction) {
     if (!selected || groupActionsDisabled) return;
     const groupId = selected.group.id;
-    if (selectedImages.length > 0) {
-      const previous = selected.images;
-      const selectedIdSet = new Set(selectedImages.map((image) => image.id));
-      const next = previous.map((image) =>
-        selectedIdSet.has(image.id) ? { ...image, mark: markForSelectedAction(image, action) } : image
-      );
-      updateGroup(groupId, next);
-
-      try {
-        const updatedImages = await Promise.all(
-          next
-            .filter((image) => selectedIdSet.has(image.id))
-            .map((image) => dataSource.updateImage(image.id, image.mark))
-        );
-        const updatedById = new Map(updatedImages.map((image) => [image.id, image]));
-        updateGroup(groupId, next.map((image) => updatedById.get(image.id) ?? image));
-        advanceAfterGroupAction(groupId);
-      } catch (error) {
-        updateGroup(groupId, previous);
-        showToast(error instanceof Error ? error.message : String(error), { error: true });
-      }
-      return;
-    }
-
     try {
       const updated = await dataSource.applyGroupAction(groupId, action);
       setGroups((current) => current.map((detail) => detail.group.id === updated.group.id ? updated : detail));
@@ -675,35 +646,17 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     void handleGroupAction(action);
   }, [handleGroupAction]);
 
-  function toggleImageSelection(imageId: number) {
-    setSelectedImageIds((current) =>
-      current.includes(imageId)
-        ? current.filter((id) => id !== imageId)
-        : [...current, imageId]
-    );
-  }
-
   function toggleImageKeepMark(image: Image) {
     void handleImageMark(image.id, image.mark === "keep" ? "none" : "keep");
   }
 
-  function handlePhotoCardClick(event: ReactMouseEvent<HTMLElement>, image: Image) {
-    if (event.ctrlKey || event.metaKey) {
-      toggleImageSelection(image.id);
-      return;
-    }
-
+  function handlePhotoCardClick(image: Image) {
     toggleImageKeepMark(image);
   }
 
   function handlePhotoCardKeyDown(event: ReactKeyboardEvent<HTMLElement>, image: Image) {
     if (event.key !== " " && event.key !== "Enter") return;
     event.preventDefault();
-
-    if (event.ctrlKey || event.metaKey) {
-      toggleImageSelection(image.id);
-      return;
-    }
 
     toggleImageKeepMark(image);
   }
@@ -722,9 +675,8 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
 
   useGroupShortcuts({
     disabled: groupActionsDisabled,
-    modalOpen: applyOpen || settingsOpen || helpOpen || compareOpen,
+    modalOpen: applyOpen || settingsOpen || helpOpen,
     onAction: (action) => triggerGroupAction(action, "shortcut"),
-    onCompare: () => setCompareOpen(true),
     onNavigate: navigateGroup,
   });
 
@@ -801,7 +753,11 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }
 
   function runPrimaryKeyboardAction() {
-    if (compareOpen || helpOpen) return;
+    if (helpOpen) return;
+    if (cacheClearConfirmOpen) {
+      if (!cacheClearing) void handleCacheClearConfirm();
+      return;
+    }
     if (applyOpen) {
       if (!applyDisabled) void handleApplyConfirm();
       return;
@@ -816,8 +772,8 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }
 
   function runCancelKeyboardAction() {
-    if (compareOpen) {
-      setCompareOpen(false);
+    if (cacheClearConfirmOpen) {
+      setCacheClearConfirmOpen(false);
       return;
     }
     if (helpOpen) {
@@ -837,6 +793,27 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     setApplyOpen(false);
     if (restoreFocus) {
       applyTriggerButtonRef.current?.focus();
+    }
+  }
+
+  async function refreshCacheInfo() {
+    const nextCacheInfo = await dataSource.getCacheInfo();
+    setCacheInfo(nextCacheInfo);
+    return nextCacheInfo;
+  }
+
+  async function handleCacheClearConfirm() {
+    setCacheClearing(true);
+    setToast(null);
+    try {
+      const result = await dataSource.clearCache();
+      setCacheClearConfirmOpen(false);
+      await refreshCacheInfo();
+      showToast(t("toast.cacheCleared", { count: result.removed }));
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : String(error), { error: true });
+    } finally {
+      setCacheClearing(false);
     }
   }
 
@@ -1092,14 +1069,6 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
                     shortcutPressed={pressedGroupAction === "delete_all"}
                     onClick={() => triggerGroupAction("delete_all")}
                   />
-                  <ActionButton
-                    active={compareOpen}
-                    disabled={groupActionsDisabled}
-                    label={t("compare.open")}
-                    shortcut="C"
-                    shortcutPressed={false}
-                    onClick={() => setCompareOpen(true)}
-                  />
                 </div>
               </header>
 
@@ -1110,12 +1079,11 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
               >
                 {selected.images.map((image) => (
                   <article
-                    className={`photo-card ${selectedImageIds.includes(image.id) ? "selected" : ""}`}
+                    className="photo-card"
                     key={image.id}
                     role="button"
                     tabIndex={0}
-                    aria-pressed={selectedImageIds.includes(image.id)}
-                    onClick={(event) => handlePhotoCardClick(event, image)}
+                    onClick={() => handlePhotoCardClick(image)}
                     onKeyDown={(event) => handlePhotoCardKeyDown(event, image)}
                   >
                     <PhotoImage dataSource={dataSource} image={image} />
@@ -1151,17 +1119,6 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
           )}
         </section>
       </section>
-
-      {compareOpen && selected && (
-        <CompareModal
-          dataSource={dataSource}
-          images={compareImages}
-          limited={compareSelectionLimited}
-          t={t}
-          onClose={() => setCompareOpen(false)}
-          onMark={(imageId, mark) => void handleImageMark(imageId, mark)}
-        />
-      )}
 
       {applyOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="apply-title">
@@ -1270,6 +1227,34 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
               <p className="settings-note">{t("settings.includeOnlineOnlyWarning")}</p>
             </section>
 
+            <section className="settings-section" aria-labelledby="cache-title">
+              <h3 id="cache-title">{t("settings.cache")}</h3>
+              <label className="cache-path-row">
+                <span>{t("settings.cacheDir")}</span>
+                <input
+                  readOnly
+                  value={cacheInfo?.cache_dir ?? t("settings.cacheLoading")}
+                  aria-label={t("settings.cacheDir")}
+                />
+              </label>
+              <div className="cache-actions-row">
+                <p className="settings-note">
+                  {cacheInfo
+                    ? t("settings.cacheSnapshotSummary", {
+                      count: cacheInfo.snapshot_count,
+                      size: formatBytes(cacheInfo.snapshot_bytes),
+                    })
+                    : t("settings.cacheLoading")}
+                </p>
+                <button
+                  onClick={() => setCacheClearConfirmOpen(true)}
+                  disabled={settingsSaving || cacheClearing}
+                >
+                  {t("settings.clearCache")}
+                </button>
+              </div>
+            </section>
+
             <section className="settings-section" aria-labelledby="scan-folders-title">
               <h3 id="scan-folders-title">{t("settings.scanFolders")}</h3>
               <div className="folder-add-row">
@@ -1344,6 +1329,27 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
                 {t("settings.save")}
               </button>
               <button onClick={() => setSettingsOpen(false)}>{t("common.close")}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cacheClearConfirmOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="cache-clear-title">
+          <div className="modal confirm-modal" ref={cacheClearConfirmModalRef}>
+            <h2 id="cache-clear-title">{t("settings.clearCacheConfirmTitle")}</h2>
+            <p>{t("settings.clearCacheConfirmBody")}</p>
+            <div className="modal-actions">
+              <button
+                ref={cacheClearConfirmButtonRef}
+                onClick={() => void handleCacheClearConfirm()}
+                disabled={cacheClearing}
+              >
+                {t("common.confirm")}
+              </button>
+              <button onClick={() => setCacheClearConfirmOpen(false)} disabled={cacheClearing}>
+                {t("common.cancel")}
+              </button>
             </div>
           </div>
         </div>
@@ -1545,7 +1551,7 @@ function isPrimaryShortcutKey(event: KeyboardEvent): boolean {
 
 function isDefaultActionGuardedTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  if (target.closest(".photo-card, .compare-tile, .mark-box")) return true;
+  if (target.closest(".photo-card, .mark-box")) return true;
 
   const tagName = target.tagName.toLowerCase();
   return (
@@ -1584,105 +1590,6 @@ function PhotoImage({ dataSource, image }: { dataSource: DataSource; image: Imag
   }, [dataSource, image]);
 
   return <img src={src || placeholderFor(image)} alt="" />;
-}
-
-function CompareModal({
-  dataSource,
-  images,
-  limited,
-  t,
-  onClose,
-  onMark,
-}: {
-  dataSource: DataSource;
-  images: Image[];
-  limited: boolean;
-  t: ReturnType<typeof useT>["t"];
-  onClose: () => void;
-  onMark: (imageId: number, mark: ImageMark) => void;
-}) {
-  return (
-    <div className="modal-backdrop compare-backdrop" role="dialog" aria-modal="true" aria-labelledby="compare-title" onClick={onClose}>
-      <article className="modal compare-modal" onClick={(event) => event.stopPropagation()}>
-        <header className="compare-header">
-          <div>
-            <h2 id="compare-title">{t("compare.title")}</h2>
-            {limited && <p>{t("compare.limited")}</p>}
-          </div>
-          <button className="icon-button" type="button" aria-label={t("compare.close")} onClick={onClose}>×</button>
-        </header>
-        <div className={`compare-grid count-${images.length}`}>
-          {images.map((image) => (
-            <CompareTile
-              key={image.id}
-              dataSource={dataSource}
-              image={image}
-              t={t}
-              onMark={onMark}
-            />
-          ))}
-        </div>
-      </article>
-    </div>
-  );
-}
-
-function CompareTile({
-  dataSource,
-  image,
-  t,
-  onMark,
-}: {
-  dataSource: DataSource;
-  image: Image;
-  t: ReturnType<typeof useT>["t"];
-  onMark: (imageId: number, mark: ImageMark) => void;
-}) {
-  const [src, setSrc] = useState(() => dataSource.kind === "mock" ? placeholderFor(image) : "");
-
-  useEffect(() => {
-    let cancelled = false;
-    setSrc(dataSource.kind === "mock" ? placeholderFor(image) : "");
-    dataSource.loadFullSrc(image)
-      .then((next) => {
-        if (!cancelled) setSrc(next);
-      })
-      .catch(() => {
-        if (!cancelled) setSrc(placeholderFor(image));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [dataSource, image]);
-
-  return (
-    <article className={`compare-tile mark-${image.mark}`} onClick={() => onMark(image.id, nextMark(image.mark))}>
-      <div className="compare-image">
-        <img src={src || placeholderFor(image)} alt="" />
-      </div>
-      <div className="compare-meta">
-        <strong title={image.path}>{fileName(image.path)}</strong>
-        <span>{formatDimensions(image)} · {formatBytes(image.size_bytes)}</span>
-        <span>{t("compare.date", { date: formatImageDate(image) })}</span>
-        <span>{t("compare.similarity", { similarity: formatSimilarity(image) })}</span>
-        <span className={`mark-chip ${image.mark}`}>{t(markKey(image.mark))}</span>
-      </div>
-      <div className="mark-row" aria-label={t("mark.aria", { fileName: fileName(image.path) })}>
-        <MarkBox
-          checked={image.mark === "keep"}
-          icon="🔒"
-          label={t("mark.keep")}
-          onChange={() => onMark(image.id, image.mark === "keep" ? "none" : "keep")}
-        />
-        <MarkBox
-          checked={image.mark === "delete"}
-          icon="🗑"
-          label={t("mark.delete")}
-          onChange={() => onMark(image.id, image.mark === "delete" ? "none" : "delete")}
-        />
-      </div>
-    </article>
-  );
 }
 
 function GroupCover({ dataSource, detail }: { dataSource: DataSource; detail: GroupDetail }) {
@@ -1773,59 +1680,8 @@ function fileName(path: string): string {
   return path.split("\\").pop() ?? path.split("/").pop() ?? path;
 }
 
-function selectCompareImages(detail: GroupDetail, selectedImageIds: number[]): Image[] {
-  if (selectedImageIds.length >= 2) {
-    const byId = new Map(detail.images.map((image) => [image.id, image]));
-    return selectedImageIds
-      .map((id) => byId.get(id))
-      .filter((image): image is Image => Boolean(image))
-      .slice(0, 4);
-  }
-
-  const recommended = detail.images.find((image) => image.recommended_keep) ?? detail.images[0];
-  if (!recommended) return [];
-  const next = detail.images
-    .filter((image) => image.id !== recommended.id)
-    .sort((left, right) =>
-      (right.similarity_to_recommended ?? -1) - (left.similarity_to_recommended ?? -1) ||
-      (right.quality_score ?? -1) - (left.quality_score ?? -1) ||
-      left.id - right.id
-    )[0];
-
-  return [recommended, next].filter((image): image is Image => Boolean(image));
-}
-
-function nextMark(mark: ImageMark): ImageMark {
-  if (mark === "none") return "keep";
-  if (mark === "keep") return "delete";
-  return "none";
-}
-
-function formatDimensions(image: Image): string {
-  return image.width && image.height ? `${image.width}x${image.height}` : "-";
-}
-
-function formatImageDate(image: Image): string {
-  if (!image.taken_at) return "-";
-  const date = new Date(image.taken_at);
-  if (!Number.isFinite(date.getTime())) return image.taken_at;
-  return date.toLocaleString();
-}
-
-function formatSimilarity(image: Image): string {
-  return image.similarity_to_recommended === null || image.similarity_to_recommended === undefined
-    ? "-"
-    : `${image.similarity_to_recommended.toFixed(1)}%`;
-}
-
 function markKey(mark: ImageMark) {
   return `mark.${mark}` as const;
-}
-
-function markForSelectedAction(image: Image, action: GroupAction): ImageMark {
-  if (action === "keep_all") return "keep";
-  if (action === "delete_all") return "delete";
-  return image.recommended_keep ? "keep" : "delete";
 }
 
 function stateLabel(state: SelectionState, t: ReturnType<typeof useT>["t"]): string {
