@@ -27,6 +27,8 @@ const en = {
   "scan.start": "Start scan",
   "scan.cancel": "Cancel scan",
   "scan.phase.collecting": "Collecting files · {count} found",
+  "scan.cacheStats": "cache {cacheHits} · new analysis {analyzedNew}",
+  "scan.groupingSkipped": "No new files - groups kept",
   "scan.skipped": "{count} skipped",
   "scan.skipped.cloudPlaceholders": "{count} online-only files excluded (not downloaded from cloud)",
   "scan.skipped.reparseDirs": "{count} reparse directories excluded",

@@ -1675,11 +1675,13 @@ function ScanPanel({
 function scanStatusLabel(status: ScanStatus, t: ReturnType<typeof useT>["t"]) {
   const statusText = status.status === "cancel_requested" ? t("scan.status.cancelRequested") : status.status;
   const skippedText = scanSkippedSummary(status, t);
+  const cacheText = scanCacheSummary(status, t);
+  const groupingSkippedText = scanGroupingSkippedSummary(status, t);
   if (status.phase === "collecting") {
-    return `${t("scan.phase.collecting", { count: status.done })}${skippedText} · ${statusText}`;
+    return `${t("scan.phase.collecting", { count: status.done })}${skippedText}${cacheText}${groupingSkippedText} · ${statusText}`;
   }
 
-  return `${status.phase} · ${status.done}/${status.total}${skippedText} · ${statusText}`;
+  return `${status.phase} · ${status.done}/${status.total}${skippedText}${cacheText}${groupingSkippedText} · ${statusText}`;
 }
 
 function scanSkippedSummary(status: ScanStatus, t: ReturnType<typeof useT>["t"]) {
@@ -1690,6 +1692,21 @@ function scanSkippedSummary(status: ScanStatus, t: ReturnType<typeof useT>["t"])
     skipped.unreadable ? t("scan.skipped.unreadable", { count: skipped.unreadable }) : null,
   ].filter((part): part is string => Boolean(part));
   return parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
+}
+
+function scanCacheSummary(status: ScanStatus, t: ReturnType<typeof useT>["t"]) {
+  const cacheHits = numberFromUnknown(status.cache_hits ?? status.summary?.cache_hits);
+  const analyzedNew = numberFromUnknown(status.analyzed_new ?? status.summary?.analyzed_new);
+  if (cacheHits === null || analyzedNew === null) return "";
+  return ` · ${t("scan.cacheStats", { cacheHits, analyzedNew })}`;
+}
+
+function scanGroupingSkippedSummary(status: ScanStatus, t: ReturnType<typeof useT>["t"]) {
+  return status.status === "done" && status.summary?.grouping_skipped === true ? ` · ${t("scan.groupingSkipped")}` : "";
+}
+
+function numberFromUnknown(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function sameScanFolders(left: string[], right: string[]) {

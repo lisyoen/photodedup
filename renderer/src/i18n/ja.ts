@@ -29,6 +29,8 @@ const ja: Record<keyof typeof en, string> = {
   "scan.start": "スキャン開始",
   "scan.cancel": "スキャンをキャンセル",
   "scan.phase.collecting": "ファイル収集中 · {count} 件検出",
+  "scan.cacheStats": "キャッシュ {cacheHits} 件 · 新規解析 {analyzedNew} 件",
+  "scan.groupingSkipped": "新規ファイルなし - グループを維持",
   "scan.skipped": "{count} 件スキップ",
   "scan.skipped.cloudPlaceholders": "オンライン専用ファイル {count} 件を除外（クラウド未ダウンロード）",
   "scan.skipped.reparseDirs": "リパースポイントフォルダー {count} 件を除外",

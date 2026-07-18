@@ -29,6 +29,8 @@ const ko: Record<keyof typeof en, string> = {
   "scan.start": "스캔 시작",
   "scan.cancel": "스캔 취소",
   "scan.phase.collecting": "파일 수집 중 · {count}개 발견",
+  "scan.cacheStats": "캐시 {cacheHits}건 · 신규 분석 {analyzedNew}건",
+  "scan.groupingSkipped": "신규 파일 없음 — 그룹 유지",
   "scan.skipped": "{count}개 스킵",
   "scan.skipped.cloudPlaceholders": "온라인 전용 파일 {count}건 제외(클라우드 미다운로드)",
   "scan.skipped.reparseDirs": "재분석 지점 폴더 {count}건 제외",

@@ -49,6 +49,8 @@ class Job:
     error: str | None = None
     current_path: str | None = None
     skipped: dict[str, int] = field(default_factory=dict)
+    cache_hits: int | None = None
+    analyzed_new: int | None = None
     cancel_requested: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -69,6 +71,10 @@ class Job:
                 payload["eta_sec"] = None
                 payload["current_path"] = self.current_path
                 payload["skipped"] = dict(self.skipped)
+                if self.cache_hits is not None:
+                    payload["cache_hits"] = self.cache_hits
+                if self.analyzed_new is not None:
+                    payload["analyzed_new"] = self.analyzed_new
             return payload
 
     def set_progress(
@@ -79,6 +85,8 @@ class Job:
         *,
         current_path: str | None = None,
         skipped: dict[str, int] | None = None,
+        cache_hits: int | None = None,
+        analyzed_new: int | None = None,
     ) -> None:
         with self.lock:
             if self.status in {"cancelled", "done", "error"}:
@@ -92,6 +100,10 @@ class Job:
                 self.current_path = current_path
             if skipped is not None:
                 self.skipped = dict(skipped)
+            if cache_hits is not None:
+                self.cache_hits = int(cache_hits)
+            if analyzed_new is not None:
+                self.analyzed_new = int(analyzed_new)
 
 
 def create_app(data_dir: str | Path, token: str) -> FastAPI:
@@ -503,9 +515,11 @@ def _run_scan_job(
         files = list(deduped_files.values())
         rows = []
         cache_hits = 0
+        analyzed_new = 0
         errors = 0
         total = len(files)
-        job.set_progress(0, total, "scanning")
+        previous_threshold = _manifest_threshold(manifest)
+        job.set_progress(0, total, "scanning", cache_hits=cache_hits, analyzed_new=analyzed_new)
         for index, image in enumerate(files, start=1):
             _raise_if_cancelled(job)
             cached = manifest.cache_lookup(image)
@@ -513,6 +527,7 @@ def _run_scan_job(
                 cache_hits += 1
                 row = cached
             else:
+                analyzed_new += 1
                 try:
                     _raise_if_cancelled(job)
                     fp = fingerprint(image.path)
@@ -522,10 +537,10 @@ def _run_scan_job(
                     row = manifest.upsert_image(image, sharpness=sharp, phash=fp.phash, dhash=fp.dhash, quality_score=q_score, histogram=fp.histogram)
                 except (OSError, SyntaxError, UnidentifiedImageError) as exc:
                     errors += 1
-                    job.set_progress(index, total, "scanning")
+                    job.set_progress(index, total, "scanning", cache_hits=cache_hits, analyzed_new=analyzed_new)
                     continue
             rows.append(row)
-            job.set_progress(index, total, "scanning")
+            job.set_progress(index, total, "scanning", cache_hits=cache_hits, analyzed_new=analyzed_new)
         for index, row in enumerate(rows, start=1):
             _raise_if_cancelled(job)
             if not row.thumb_path or not Path(row.thumb_path).exists():
@@ -534,7 +549,7 @@ def _run_scan_job(
                     manifest.set_thumb(row.id, make_thumbnail(row.path, thumbs_dir, row.id))
                 except Exception:
                     pass
-            job.set_progress(index, len(rows), "thumbnails")
+            job.set_progress(index, len(rows), "thumbnails", cache_hits=cache_hits, analyzed_new=analyzed_new)
         _raise_if_cancelled(job)
         scanned_image_ids = [row.id for row in rows]
         resolved_image_ids = _resolved_image_ids(manifest, scanned_image_ids)
@@ -545,25 +560,31 @@ def _run_scan_job(
         ]
         def report_grouping(done: int, total: int, phase: str) -> None:
             _raise_if_cancelled(job)
-            job.set_progress(done, total, phase)
+            job.set_progress(done, total, phase, cache_hits=cache_hits, analyzed_new=analyzed_new)
 
-        groups = group_images(groupables, threshold=threshold, progress_cb=report_grouping)
-        groups = manifest.filter_unevaluated_groups(groups)
-        _raise_if_cancelled(job)
-        quality_scores = {row.id: float(row.quality_score or 0.0) for row in rows}
-        keep_by_group = {group_id: choose_keep(members, quality_scores) for group_id, members in enumerate(groups, start=1)}
-        _raise_if_cancelled(job)
-        replaced_groups = _replace_groups_for_scanned_images(
-            manifest,
-            groups,
-            keep_by_group,
-            threshold,
-            scanned_image_ids=[image.id for image in groupables],
-        )
-        _raise_if_cancelled(job)
-        manifest.set_meta("threshold", str(threshold))
+        grouping_skipped = analyzed_new == 0 and errors == 0 and previous_threshold == threshold
+        replaced_groups = 0
+        if grouping_skipped:
+            scan_log = f"{scan_log}; grouping skipped (no new files)"
+        else:
+            groups = group_images(groupables, threshold=threshold, progress_cb=report_grouping)
+            groups = manifest.filter_unevaluated_groups(groups)
+            _raise_if_cancelled(job)
+            quality_scores = {row.id: float(row.quality_score or 0.0) for row in rows}
+            keep_by_group = {group_id: choose_keep(members, quality_scores) for group_id, members in enumerate(groups, start=1)}
+            _raise_if_cancelled(job)
+            replaced_groups = _replace_groups_for_scanned_images(
+                manifest,
+                groups,
+                keep_by_group,
+                threshold,
+                scanned_image_ids=[image.id for image in groupables],
+            )
+            _raise_if_cancelled(job)
+            manifest.set_meta("threshold", str(threshold))
         manifest.set_meta("last_scan_at", utc_now())
-        _write_group_snapshot(cache_dir, manifest, [str(root) for root in roots])
+        if not grouping_skipped:
+            _write_group_snapshot(cache_dir, manifest, [str(root) for root in roots])
         groups_total, duplicate_groups, reclaimable = manifest.summary()
         with job.lock:
             job.status = "done"
@@ -575,8 +596,10 @@ def _run_scan_job(
                 "duplicate_groups": duplicate_groups,
                 "reclaimable_bytes": reclaimable,
                 "cache_hits": cache_hits,
+                "analyzed_new": analyzed_new,
                 "errors": errors,
-                "log": f"{scan_log}; scoped groups replaced={replaced_groups}",
+                "grouping_skipped": grouping_skipped,
+                "log": f"{scan_log}; cache_hits={cache_hits}, analyzed_new={analyzed_new}; scoped groups replaced={replaced_groups}",
             }
     except _ScanCancelled:
         _cancel(job)
@@ -689,6 +712,16 @@ def _replace_groups_for_scanned_images(
     )
     manifest.conn.commit()
     return len(old_group_ids)
+
+
+def _manifest_threshold(manifest: Manifest) -> int | None:
+    row = manifest.conn.execute("SELECT value FROM scan_meta WHERE key = 'threshold'").fetchone()
+    if row is None or row["value"] is None:
+        return None
+    try:
+        return int(row["value"])
+    except ValueError:
+        return None
 
 
 def _run_cleanup_job(job: Job, db_path: Path, mode: str, group_ids: list[int] | None = None) -> None:

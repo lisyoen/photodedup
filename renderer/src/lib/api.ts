@@ -76,6 +76,8 @@ export interface ScanStatus {
   cancellable: boolean;
   summary?: Record<string, unknown> | null;
   current_path?: string | null;
+  cache_hits?: number;
+  analyzed_new?: number;
   skipped?: {
     cloud_placeholders?: number;
     reparse_dirs?: number;

@@ -616,6 +616,120 @@ def test_scan_dedups_overlapping_roots_before_processing(tmp_path: Path, monkeyp
     assert "dedup skipped: 1" in str(job.summary["log"])
 
 
+def _run_cached_scan_scenario(
+    tmp_path: Path,
+    monkeypatch,
+    *,
+    files: list[ImageFile],
+    threshold: int = 88,
+    group_calls: list[tuple[int, list[int]]] | None = None,
+) -> api_module.Job:
+    root = tmp_path / "images"
+    root.mkdir(exist_ok=True)
+    db_path = tmp_path / "data" / "manifest.db"
+    Manifest(db_path).close()
+
+    def fake_scan_folder(scan_root: Path, progress_cb=None) -> list[ImageFile]:
+        assert scan_root == root
+        if progress_cb:
+            progress_cb(len(files))
+        return files
+
+    def fake_fingerprint(path: Path):
+        index = next(i for i, image in enumerate(files, start=1) if image.path == path)
+        return type(
+            "Fingerprint",
+            (),
+            {
+                "phash": f"{index:016x}",
+                "dhash": f"{index + 10:016x}",
+                "histogram": [float(index), 0.0],
+            },
+        )()
+
+    def fake_group_images(groupables, *, threshold: int, progress_cb=None):
+        if progress_cb:
+            progress_cb(len(groupables), len(groupables), "grouping")
+        if group_calls is not None:
+            group_calls.append((threshold, [image.id for image in groupables]))
+        return [[groupables[0].id, groupables[1].id]] if len(groupables) >= 2 else []
+
+    monkeypatch.setattr(api_module, "scan_folder", fake_scan_folder)
+    monkeypatch.setattr(api_module, "fingerprint", fake_fingerprint)
+    monkeypatch.setattr(api_module, "quality_score", lambda **_: (88.0, 10.0))
+    monkeypatch.setattr(api_module, "make_thumbnail", lambda *_: tmp_path / "thumb.jpg")
+    monkeypatch.setattr(api_module, "group_images", fake_group_images)
+
+    job = api_module.Job(id=f"scan-{time.monotonic_ns()}", kind="scan")
+    api_module._run_scan_job(job, db_path, tmp_path / "thumbs", tmp_path / "data" / "cache", [root], threshold)
+    return job
+
+
+def _image_file(path: Path, *, size_bytes: int = 100, mtime: float = 1.0) -> ImageFile:
+    return ImageFile(
+        path=path,
+        size_bytes=size_bytes,
+        mtime=mtime,
+        taken_at=None,
+        width=10,
+        height=10,
+        format="JPEG",
+    )
+
+
+def test_scan_reuses_cache_and_skips_grouping_when_files_unchanged(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "images"
+    files = [_image_file(root / "a.jpg"), _image_file(root / "b.jpg", size_bytes=101)]
+    group_calls: list[tuple[int, list[int]]] = []
+
+    first = _run_cached_scan_scenario(tmp_path, monkeypatch, files=files, threshold=88, group_calls=group_calls)
+    second = _run_cached_scan_scenario(tmp_path, monkeypatch, files=files, threshold=88, group_calls=group_calls)
+
+    assert first.status == "done"
+    assert second.status == "done"
+    assert second.cache_hits == len(files)
+    assert second.analyzed_new == 0
+    assert second.summary is not None
+    assert second.summary["cache_hits"] == len(files)
+    assert second.summary["analyzed_new"] == 0
+    assert second.summary["grouping_skipped"] is True
+    assert "grouping skipped (no new files)" in str(second.summary["log"])
+    assert len(group_calls) == 1
+
+
+def test_scan_groups_again_when_new_file_is_added(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "images"
+    files = [_image_file(root / "a.jpg"), _image_file(root / "b.jpg", size_bytes=101)]
+    group_calls: list[tuple[int, list[int]]] = []
+
+    _run_cached_scan_scenario(tmp_path, monkeypatch, files=files, threshold=88, group_calls=group_calls)
+    files.append(_image_file(root / "c.jpg", size_bytes=102))
+    third = _run_cached_scan_scenario(tmp_path, monkeypatch, files=files, threshold=88, group_calls=group_calls)
+
+    assert third.status == "done"
+    assert third.summary is not None
+    assert third.summary["cache_hits"] == 2
+    assert third.summary["analyzed_new"] == 1
+    assert third.summary["grouping_skipped"] is False
+    assert len(group_calls) == 2
+
+
+def test_scan_groups_again_when_threshold_changes_without_new_files(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "images"
+    files = [_image_file(root / "a.jpg"), _image_file(root / "b.jpg", size_bytes=101)]
+    group_calls: list[tuple[int, list[int]]] = []
+
+    _run_cached_scan_scenario(tmp_path, monkeypatch, files=files, threshold=88, group_calls=group_calls)
+    second = _run_cached_scan_scenario(tmp_path, monkeypatch, files=files, threshold=90, group_calls=group_calls)
+
+    assert second.status == "done"
+    assert second.summary is not None
+    assert second.summary["cache_hits"] == len(files)
+    assert second.summary["analyzed_new"] == 0
+    assert second.summary["grouping_skipped"] is False
+    assert group_calls == [(88, [1, 2]), (90, [1, 2])]
+
+
 def test_scan_supersedes_running_scan_job(tmp_path: Path, monkeypatch) -> None:
     first_root = tmp_path / "first"
     second_root = tmp_path / "second"
@@ -1000,7 +1114,7 @@ def test_scan_preserves_out_of_scope_manifest_results(tmp_path: Path) -> None:
     assert started.status_code == 202
     status = _wait_scan(client, started.json()["scan_id"])
     assert status["status"] == "done"
-    assert status["summary"]["log"] == "previous results preserved until scan completion; scoped groups replaced=0"
+    assert status["summary"]["log"] == "previous results preserved until scan completion; cache_hits=0, analyzed_new=1; scoped groups replaced=0"
 
     manifest = Manifest(data_dir / "manifest.db")
     try:

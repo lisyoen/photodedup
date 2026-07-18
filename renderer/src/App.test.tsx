@@ -886,6 +886,56 @@ describe("App settings", () => {
     expect(document.body.textContent).not.toContain("0/0");
   });
 
+  it("renders scan cache stats and grouping skipped completion summary", async () => {
+    vi.useFakeTimers();
+    saveStoredScanFolders(["D:\\Cached Photos"]);
+    vi.spyOn(MockDataSource.prototype, "listGroupDetails").mockResolvedValue({
+      items: [],
+      next_cursor: null,
+      total_estimate: 0,
+    });
+    vi.spyOn(MockDataSource.prototype, "startScan").mockResolvedValue({
+      scan_id: "cached-scan",
+      status: "queued",
+    });
+    vi.spyOn(MockDataSource.prototype, "getScan")
+      .mockResolvedValueOnce({
+        scan_id: "cached-scan",
+        status: "running",
+        phase: "scanning",
+        done: 8,
+        total: 10,
+        cancellable: true,
+        cache_hits: 6,
+        analyzed_new: 2,
+      })
+      .mockResolvedValue({
+        scan_id: "cached-scan",
+        status: "done",
+        phase: "done",
+        done: 10,
+        total: 10,
+        cancellable: false,
+        summary: {
+          cache_hits: 10,
+          analyzed_new: 0,
+          grouping_skipped: true,
+        },
+      });
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await waitUntilFake(() => document.body.textContent?.includes("cache 6 · new analysis 2") === true);
+    await vi.advanceTimersByTimeAsync(1000);
+    await waitUntilFake(() => document.body.textContent?.includes("No new files - groups kept") === true);
+
+    expect(document.body.textContent).toContain("cache 10 · new analysis 0");
+  });
+
   it("disables manual scan start when no scan folder is configured", async () => {
     root.render(
       <I18nProvider>
