@@ -1424,6 +1424,100 @@ describe("App settings", () => {
     expect(openReleasePage).not.toHaveBeenCalled();
   });
 
+  it("checks every 60 seconds and announces a newly detected version only once", async () => {
+    vi.useFakeTimers();
+    const update = {
+      latest: "0.1.6",
+      current: "0.1.5",
+      htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.1.6",
+      updateAvailable: true,
+      isSourceInstall: true,
+    };
+    const checkForUpdates = vi.fn().mockResolvedValue(update);
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      getAppVersion: vi.fn().mockResolvedValue("0.1.5"),
+      getUpdateAvailability: vi.fn().mockResolvedValue(null),
+      checkForUpdates,
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await waitUntilFake(() => document.querySelector(".topbar .version-badge") !== null);
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await waitUntilFake(() => checkForUpdates.mock.calls.length === 1);
+    await waitUntilFake(() => document.querySelector(".topbar .version-badge")?.textContent?.includes("v0.1.6") === true);
+    expect(document.querySelector(".topbar .version-badge")?.textContent).toContain("v0.1.6 update");
+    expect(document.body.textContent).toContain("Update v0.1.6 is available.");
+
+    getButton("Dismiss notification").click();
+    await waitUntilFake(() => document.querySelector(".toast") === null);
+    await vi.advanceTimersByTimeAsync(60_000);
+    await waitUntilFake(() => checkForUpdates.mock.calls.length === 2);
+
+    expect(document.querySelector(".toast")).toBeNull();
+    expect(document.querySelector(".update-modal")).toBeNull();
+  });
+
+  it("retries 304 or failed periodic checks silently on the next interval", async () => {
+    vi.useFakeTimers();
+    const checkForUpdates = vi.fn()
+      .mockResolvedValueOnce(null)
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce(null);
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      getUpdateAvailability: vi.fn().mockResolvedValue(null),
+      checkForUpdates,
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn(() => () => undefined),
+    };
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await waitUntilFake(() => document.querySelector(".topbar") !== null);
+
+    await vi.advanceTimersByTimeAsync(180_000);
+    await waitUntilFake(() => checkForUpdates.mock.calls.length === 3);
+
+    expect(document.querySelector(".toast")).toBeNull();
+  });
+
+  it("keeps a toast for 60 seconds and dismisses it immediately with the close button", async () => {
+    vi.spyOn(MockDataSource.prototype, "putSettings").mockImplementation(async (settings) => settings);
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await settle();
+    getButton("Open settings").click();
+    await waitUntil(() => document.body.textContent?.includes("Similarity threshold") === true);
+
+    vi.useFakeTimers();
+    getButton("Save settings").click();
+    await waitUntilFake(() => document.querySelector(".toast") !== null);
+    await vi.advanceTimersByTimeAsync(59_000);
+    expect(document.body.textContent).toContain("Settings saved.");
+
+    getButton("Dismiss notification").click();
+    await waitUntilFake(() => document.querySelector(".toast") === null);
+    expect(document.querySelector(".toast")).toBeNull();
+  });
+
   it("closes settings after a successful save", async () => {
     const putSettings = vi.spyOn(MockDataSource.prototype, "putSettings").mockImplementation(async (settings) => settings);
 
@@ -1544,11 +1638,11 @@ describe("App settings", () => {
 
     expect(document.body.textContent).toContain("Settings saved.");
 
-    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(59_000);
     await flushPromises();
     expect(document.body.textContent).toContain("Settings saved.");
 
-    await vi.advanceTimersByTimeAsync(600);
+    await vi.advanceTimersByTimeAsync(1_100);
     await flushPromises();
     flushSync(() => undefined);
     expect(document.body.textContent).not.toContain("Settings saved.");
@@ -1580,11 +1674,11 @@ describe("App settings", () => {
     await waitUntilFake(() => document.body.textContent?.includes("Settings save failed") === true);
     expect(document.body.textContent).toContain("Settings save failed");
 
-    await vi.advanceTimersByTimeAsync(2500);
+    await vi.advanceTimersByTimeAsync(30_000);
     await flushPromises();
     expect(document.body.textContent).toContain("Settings save failed");
 
-    await vi.advanceTimersByTimeAsync(2500);
+    await vi.advanceTimersByTimeAsync(30_100);
     await flushPromises();
     flushSync(() => undefined);
     expect(document.body.textContent).not.toContain("Settings save failed");

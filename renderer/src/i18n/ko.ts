@@ -76,6 +76,8 @@ const ko: Record<keyof typeof en, string> = {
   "toast.scanFolderChildrenRemoved": "상위 폴더에 포함된 하위 폴더 {count}개 제거",
   "toast.scanFolderCoveredByParent": "이미 상위 폴더에 포함됨",
   "toast.scanFolderRequired": "스캔을 시작하려면 스캔 폴더를 추가하세요.",
+  "toast.updateAvailable": "업데이트 {version}을 사용할 수 있습니다.",
+  "toast.close": "알림 닫기",
   "settings.title": "설정",
   "settings.language": "언어",
   "settings.language.default": "기본값",

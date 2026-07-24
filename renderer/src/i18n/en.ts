@@ -74,6 +74,8 @@ const en = {
   "toast.scanFolderChildrenRemoved": "Removed {count} child folders already covered by the parent folder.",
   "toast.scanFolderCoveredByParent": "Already covered by a parent folder.",
   "toast.scanFolderRequired": "Add a scan folder before starting a scan.",
+  "toast.updateAvailable": "Update {version} is available.",
+  "toast.close": "Dismiss notification",
   "settings.title": "Settings",
   "settings.language": "Language",
   "settings.language.default": "default",

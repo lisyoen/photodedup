@@ -14,6 +14,7 @@ export interface RendererShell {
   onTrayScanNow(callback: () => void): () => void;
   getAppVersion?: () => Promise<string>;
   getUpdateAvailability?: () => Promise<RendererUpdateStatus | null>;
+  checkForUpdates?: () => Promise<RendererUpdateStatus | null>;
   openReleasePage?: (url: string) => Promise<void>;
   startUpdate?: () => Promise<{ ok: boolean; error?: string }>;
   restartAfterUpdate?: () => Promise<void>;

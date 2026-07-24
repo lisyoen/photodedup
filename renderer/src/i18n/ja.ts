@@ -76,6 +76,8 @@ const ja: Record<keyof typeof en, string> = {
   "toast.scanFolderChildrenRemoved": "親フォルダーに含まれる子フォルダーを {count} 件削除しました。",
   "toast.scanFolderCoveredByParent": "すでに親フォルダーに含まれています。",
   "toast.scanFolderRequired": "スキャンを開始するにはスキャンフォルダーを追加してください。",
+  "toast.updateAvailable": "アップデート {version} を利用できます。",
+  "toast.close": "通知を閉じる",
   "settings.title": "設定",
   "settings.language": "言語",
   "settings.language.default": "既定",

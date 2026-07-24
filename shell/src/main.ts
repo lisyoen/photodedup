@@ -216,6 +216,21 @@ ipcMain.handle("app:get-version", () => app.getVersion());
 
 ipcMain.handle("update:get-availability", () => lastUpdateStatus);
 
+ipcMain.handle("update:check", async () => {
+  if (updateInProgress) {
+    return null;
+  }
+  const status = await checkUpdateStatus({
+    currentVersion: app.getVersion(),
+    isSourceInstall: isSourceInstall(repoRoot(), app.isPackaged),
+  });
+  if (status.latest === null) {
+    return null;
+  }
+  lastUpdateStatus = status;
+  return status;
+});
+
 ipcMain.handle("update:open-release-page", async (_event, url: unknown) => {
   if (typeof url !== "string" || !/^https:\/\/github\.com\/lisyoen\/photodedup\/releases\//.test(url)) {
     return;

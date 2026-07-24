@@ -45,6 +45,9 @@ export const UPDATE_STAGES: UpdateStage[] = [
   { id: "shell-build", label: "shell: npm run build" },
 ];
 
+let latestReleaseEtag: string | null = null;
+let cachedLatestRelease: ReleaseInfo | null = null;
+
 export function normalizeSemver(version: string): [number, number, number] | null {
   const trimmed = version.trim().replace(/^v/i, "");
   const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(trimmed);
@@ -128,14 +131,24 @@ export async function fetchLatestRelease(
       headers: {
         Accept: "application/vnd.github+json",
         "User-Agent": "PhotoDedup-update-check",
+        ...(latestReleaseEtag ? { "If-None-Match": latestReleaseEtag } : {}),
       },
       signal: controller.signal,
     });
 
+    if (response.status === 304) {
+      return cachedLatestRelease;
+    }
     if (!response.ok) {
       return null;
     }
-    return await response.json() as ReleaseInfo;
+    const release = await response.json() as ReleaseInfo;
+    const etag = response.headers?.get?.("etag");
+    if (etag) {
+      latestReleaseEtag = etag;
+    }
+    cachedLatestRelease = release;
+    return release;
   } catch {
     return null;
   } finally {

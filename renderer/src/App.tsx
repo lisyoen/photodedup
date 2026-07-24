@@ -60,8 +60,9 @@ const TERMINAL_SCAN_STATES = new Set(["done", "error", "cancelled"]);
 const TERMINAL_CLEANUP_STATES = new Set(["done", "error", "cancelled"]);
 const CLEANUP_POLL_INTERVAL_MS = 500;
 const CLEANUP_TIMEOUT_MS = 120_000;
-const INFO_TOAST_TIMEOUT_MS = 2500;
-const ERROR_TOAST_TIMEOUT_MS = 5000;
+const INFO_TOAST_TIMEOUT_MS = 60_000;
+const ERROR_TOAST_TIMEOUT_MS = 60_000;
+const UPDATE_CHECK_INTERVAL_MS = 60_000;
 const HOURS_TO_MS = 60 * 60 * 1000;
 const SHORTCUT_PRESS_MS = 150;
 const THUMBNAIL_ZOOM_STEP = 1.15;
@@ -147,6 +148,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const cacheClearConfirmModalRef = useRef<HTMLDivElement | null>(null);
   const cacheClearConfirmButtonRef = useRef<HTMLButtonElement | null>(null);
   const updateDismissed = useRef(false);
+  const notifiedUpdateVersions = useRef(new Set<string>());
   const settingsOpenScanFolders = useRef<string[]>(scanFolders);
   const activeScanIdRef = useRef<string | null>(null);
   const settingsSyncReady = useRef(false);
@@ -254,6 +256,14 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       () => setToast(null),
       options.error ? ERROR_TOAST_TIMEOUT_MS : INFO_TOAST_TIMEOUT_MS
     );
+  }
+
+  function dismissToast() {
+    if (toastTimer.current) {
+      window.clearTimeout(toastTimer.current);
+      toastTimer.current = undefined;
+    }
+    setToast(null);
   }
 
   function updateActiveScanId(scanId: string | null) {
@@ -465,6 +475,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       setUpdateStatus(update);
       if (update.updateAvailable) {
         setUpdateProgress(null);
+        if (update.latest && !notifiedUpdateVersions.current.has(update.latest)) {
+          notifiedUpdateVersions.current.add(update.latest);
+          showToast(t("toast.updateAvailable", { version: formatVersion(update.latest) }));
+        }
         if (!updateDismissed.current) setUpdateModalOpen(true);
       }
     }
@@ -487,6 +501,39 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       removeProgressListener?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!window.shell?.checkForUpdates) return;
+
+    let cancelled = false;
+    let checking = false;
+    const check = async () => {
+      if (checking || updateBusy || updateModalOpen) return;
+      checking = true;
+      try {
+        const update = await window.shell?.checkForUpdates?.();
+        if (!update || cancelled) return;
+        setUpdateStatus(update);
+        if (
+          update.updateAvailable
+          && update.latest
+          && !notifiedUpdateVersions.current.has(update.latest)
+        ) {
+          notifiedUpdateVersions.current.add(update.latest);
+          showToast(t("toast.updateAvailable", { version: formatVersion(update.latest) }));
+        }
+      } catch {
+        // Periodic update checks retry silently on the next interval.
+      } finally {
+        checking = false;
+      }
+    };
+    const interval = window.setInterval(() => void check(), UPDATE_CHECK_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [t, updateBusy, updateModalOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1592,9 +1639,17 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       {helpOpen && <HelpView onClose={() => setHelpOpen(false)} />}
 
       {toast && (
-        <button className="toast" onClick={() => setToast(null)}>
-          {toast}
-        </button>
+        <div className="toast" role="status">
+          <span>{toast}</span>
+          <button
+            className="toast-close"
+            type="button"
+            aria-label={t("toast.close")}
+            onClick={dismissToast}
+          >
+            ×
+          </button>
+        </div>
       )}
     </main>
   );

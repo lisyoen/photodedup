@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld("shell", {
   selectFolders: async () => validateFolderPaths(await ipcRenderer.invoke("dialog:selectFolders")),
   getAppVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>,
   getUpdateAvailability: async () => validateUpdateAvailability(await ipcRenderer.invoke("update:get-availability")),
+  checkForUpdates: async () => validateUpdateAvailability(await ipcRenderer.invoke("update:check")),
   openReleasePage: (url) => ipcRenderer.invoke("update:open-release-page", url) as Promise<void>,
   startUpdate: () => ipcRenderer.invoke("update:start") as Promise<{ ok: boolean; error?: string }>,
   restartAfterUpdate: () => ipcRenderer.invoke("update:restart") as Promise<void>,

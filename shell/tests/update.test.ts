@@ -146,6 +146,42 @@ describe("update availability", () => {
       isSourceInstall: true,
     });
   });
+
+  it("reuses the ETag and cached release when GitHub returns 304", async () => {
+    const json = vi.fn().mockResolvedValue({
+      tag_name: "v0.3.0",
+      html_url: "https://github.com/lisyoen/photodedup/releases/tag/v0.3.0",
+    });
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: vi.fn().mockReturnValue("\"release-v3\"") },
+        json,
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 304,
+        headers: { get: vi.fn() },
+        json: vi.fn(),
+      }) as unknown as typeof fetch;
+
+    await checkUpdateStatus({ currentVersion: "0.1.1", isSourceInstall: true, fetchImpl });
+    await expect(checkUpdateStatus({
+      currentVersion: "0.1.1",
+      isSourceInstall: true,
+      fetchImpl,
+    })).resolves.toMatchObject({ latest: "0.3.0", updateAvailable: true });
+
+    expect(fetchImpl).toHaveBeenNthCalledWith(
+      2,
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({ "If-None-Match": "\"release-v3\"" }),
+      })
+    );
+    expect(json).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("runSourceUpdate", () => {

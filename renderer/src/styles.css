@@ -884,6 +884,15 @@ fieldset label {
   background: #102f2b;
   text-align: left;
   box-shadow: 0 14px 48px rgba(0, 0, 0, 0.36);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toast-close {
+  min-width: 32px;
+  padding: 4px 8px;
 }
 
 @media (max-width: 820px) {
