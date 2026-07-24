@@ -217,6 +217,36 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     };
   }, []);
 
+  useEffect(() => {
+    function handleApplyAllShortcut(event: KeyboardEvent) {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+
+      event.preventDefault();
+      if (event.repeat) return;
+
+      const applyButton = applyTriggerButtonRef.current;
+      const modalOpen = applyOpen
+        || settingsOpen
+        || helpOpen
+        || cacheClearConfirmOpen
+        || (updateModalOpen && availableUpdate !== null);
+      if (!applyButton || applyButton.disabled || modalOpen || busy) return;
+
+      handleApplyAll();
+    }
+
+    window.addEventListener("keydown", handleApplyAllShortcut);
+    return () => window.removeEventListener("keydown", handleApplyAllShortcut);
+  }, [
+    applyOpen,
+    availableUpdate,
+    busy,
+    cacheClearConfirmOpen,
+    helpOpen,
+    settingsOpen,
+    updateModalOpen,
+  ]);
+
   function showToast(message: string, options: { error?: boolean } = {}) {
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
     setToast(message);
@@ -821,6 +851,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     }
   }
 
+  function handleApplyAll() {
+    setApplyOpen(true);
+  }
+
   function handleLanguageChange(nextLanguage: Language) {
     setLanguage(nextLanguage);
   }
@@ -1101,8 +1135,9 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
           <button
             ref={applyTriggerButtonRef}
             className="apply-button"
-            onClick={() => setApplyOpen(true)}
+            onClick={handleApplyAll}
             disabled={applyDisabled}
+            title={t("app.applyAllShortcut")}
           >
             {t("app.applyAll")} <span>{applyScope.groupIds.length}</span>
           </button>

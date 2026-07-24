@@ -4,6 +4,7 @@ const en = {
   "app.settings": "Settings",
   "app.selectFolder": "Select folder",
   "app.applyAll": "Apply all",
+  "app.applyAllShortcut": "Apply all (Ctrl+S)",
   "engine.connectionFailed": "Engine connection failed. Quit the app and start it again.",
   "preview.mockBanner": "Preview mode - mock data (not real photos or file names)",
   "filters.status": "Status",

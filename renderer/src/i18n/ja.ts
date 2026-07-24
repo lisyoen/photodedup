@@ -6,6 +6,7 @@ const ja: Record<keyof typeof en, string> = {
   "app.settings": "設定",
   "app.selectFolder": "フォルダを選択",
   "app.applyAll": "すべて適用",
+  "app.applyAllShortcut": "すべて適用 (Ctrl+S)",
   "engine.connectionFailed": "エンジン接続に失敗しました。アプリを終了してから再起動してください。",
   "preview.mockBanner": "プレビューモード — モックデータです（実際の写真/ファイル名ではありません）",
   "filters.status": "ステータス",

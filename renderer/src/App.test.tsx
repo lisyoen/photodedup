@@ -2167,6 +2167,96 @@ describe("App settings", () => {
     expect(document.activeElement).toBe(mainApplyButton);
   });
 
+  it("prevents the default save action for Ctrl+S when apply-all is disabled", async () => {
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await settle();
+
+    const shortcut = dispatchShortcut("KeyS", { key: "s", ctrlKey: true });
+
+    expect(shortcut.defaultPrevented).toBe(true);
+    expect(document.querySelector("[aria-labelledby='apply-title']")).toBeNull();
+  });
+
+  it("opens the same apply-all confirmation flow for Ctrl+S as the button", async () => {
+    saveStoredScanFolders(["D:\\Apply Shortcut"]);
+    const detail = applyGroupDetail();
+    vi.spyOn(MockDataSource.prototype, "listGroupDetails").mockResolvedValue({
+      items: [detail],
+      next_cursor: null,
+      total_estimate: 1,
+    });
+    vi.spyOn(MockDataSource.prototype, "getGroup").mockResolvedValue(detail);
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await waitUntil(() => document.body.textContent?.includes("#101") === true);
+
+    const applyButton = getRequiredElement(".apply-button");
+    expect(applyButton.getAttribute("title")).toBe("Apply all (Ctrl+S)");
+    const shortcut = dispatchShortcut("KeyS", { key: "S", ctrlKey: true });
+    await waitUntil(() => document.querySelector("[aria-labelledby='apply-title']") !== null);
+
+    expect(shortcut.defaultPrevented).toBe(true);
+    expect(document.activeElement).toBe(getButton("Apply all"));
+  });
+
+  it("does not open apply-all for Ctrl+S while another modal is open", async () => {
+    saveStoredScanFolders(["D:\\Apply Shortcut Modal"]);
+    const detail = applyGroupDetail();
+    vi.spyOn(MockDataSource.prototype, "listGroupDetails").mockResolvedValue({
+      items: [detail],
+      next_cursor: null,
+      total_estimate: 1,
+    });
+    vi.spyOn(MockDataSource.prototype, "getGroup").mockResolvedValue(detail);
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await waitUntil(() => document.body.textContent?.includes("#101") === true);
+    getButton("Open settings").click();
+    await waitUntil(() => document.querySelector(".settings-modal") !== null);
+
+    const shortcut = dispatchShortcut("KeyS", { key: "s", ctrlKey: true });
+    await settle();
+
+    expect(shortcut.defaultPrevented).toBe(true);
+    expect(document.querySelector("[aria-labelledby='apply-title']")).toBeNull();
+    expect(document.querySelector(".settings-modal")).toBeTruthy();
+  });
+
+  it("opens apply-all for macOS Cmd+S", async () => {
+    saveStoredScanFolders(["D:\\Apply Shortcut Meta"]);
+    const detail = applyGroupDetail();
+    vi.spyOn(MockDataSource.prototype, "listGroupDetails").mockResolvedValue({
+      items: [detail],
+      next_cursor: null,
+      total_estimate: 1,
+    });
+    vi.spyOn(MockDataSource.prototype, "getGroup").mockResolvedValue(detail);
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await waitUntil(() => document.body.textContent?.includes("#101") === true);
+
+    const shortcut = dispatchShortcut("KeyS", { key: "s", metaKey: true });
+    await waitUntil(() => document.querySelector("[aria-labelledby='apply-title']") !== null);
+
+    expect(shortcut.defaultPrevented).toBe(true);
+  });
+
   it("does not run default keyboard actions while an input has focus", async () => {
     saveStoredScanFolders(["D:\\Input Guard"]);
     const applyGroupAction = vi.spyOn(MockDataSource.prototype, "applyGroupAction");

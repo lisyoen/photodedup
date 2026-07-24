@@ -6,6 +6,7 @@ const ko: Record<keyof typeof en, string> = {
   "app.settings": "설정",
   "app.selectFolder": "폴더 선택",
   "app.applyAll": "전체 적용",
+  "app.applyAllShortcut": "전체 적용 (Ctrl+S)",
   "engine.connectionFailed": "엔진 연결에 실패했습니다. 앱을 종료 후 다시 실행해 주세요.",
   "preview.mockBanner": "미리보기 모드 — 목업 데이터입니다 (실제 사진/파일명 아님)",
   "filters.status": "상태",
