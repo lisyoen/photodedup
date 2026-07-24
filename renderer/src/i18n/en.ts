@@ -117,6 +117,7 @@ const en = {
   "update.versionBadge.latestTitle": "You are on the latest version",
   "update.versionBadge.checkFailedTitle": "Failed to check latest version",
   "update.versionBadge.updateTitle": "Open update dialog",
+  "update.versionBadge.releaseNotesTitle": "View release notes",
   "update.install": "Update",
   "update.openReleasePage": "Open release page",
   "update.later": "Later",

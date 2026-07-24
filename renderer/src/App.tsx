@@ -198,9 +198,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       : displayedVersion;
   const versionBadgeTitle = updateStatus?.updateAvailable
     ? t("update.versionBadge.updateTitle")
-    : updateStatus?.latest
-      ? t("update.versionBadge.latestTitle")
-      : t("update.versionBadge.checkFailedTitle");
+    : t("update.versionBadge.releaseNotesTitle");
 
   const updateThumbnailZoom = useCallback((updater: (current: number) => number) => {
     setThumbnailZoom((current) => {
@@ -1153,10 +1151,18 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
             type="button"
             className={`version-badge ${availableUpdate ? "available" : "current"}`}
             onClick={() => {
-              if (availableUpdate) setUpdateModalOpen(true);
+              if (availableUpdate) {
+                setUpdateModalOpen(true);
+                return;
+              }
+              if (window.shell?.openReleasePage && appVersion) {
+                void window.shell.openReleasePage(
+                  `https://github.com/lisyoen/photodedup/releases/tag/v${appVersion}`
+                );
+              }
             }}
             title={versionBadgeTitle}
-            aria-disabled={availableUpdate ? undefined : true}
+            aria-label={versionBadgeTitle}
           >
             {versionBadgeLabel}
           </button>

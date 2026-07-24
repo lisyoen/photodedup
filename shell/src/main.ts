@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu, Tray, dialog, ipcMain, shell } from "electron
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { openAllowedExternalUrl } from "./externalLinks";
 import { rendererIndexPath } from "./paths";
 import { nextSidecarRestart, SidecarManager, type SidecarHandshake } from "./sidecar";
 import {
@@ -232,10 +233,7 @@ ipcMain.handle("update:check", async () => {
 });
 
 ipcMain.handle("update:open-release-page", async (_event, url: unknown) => {
-  if (typeof url !== "string" || !/^https:\/\/github\.com\/lisyoen\/photodedup\/releases\//.test(url)) {
-    return;
-  }
-  await shell.openExternal(url);
+  await openAllowedExternalUrl(url, (allowedUrl) => shell.openExternal(allowedUrl));
 });
 
 ipcMain.handle("update:start", async () => {

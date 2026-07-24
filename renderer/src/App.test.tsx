@@ -1223,11 +1223,13 @@ describe("App settings", () => {
     await waitUntil(() => document.body.textContent?.includes("New version v0.1.3 is available") === true);
   });
 
-  it("shows a muted latest-version badge and does not open the update modal on click", async () => {
+  it("opens the current version release notes from the latest-version badge", async () => {
+    const openReleasePage = vi.fn().mockResolvedValue(undefined);
     window.shell = {
       selectFolder: vi.fn(),
       selectFolders: vi.fn(),
       getAppVersion: vi.fn().mockResolvedValue("0.1.2"),
+      openReleasePage,
       getUpdateAvailability: vi.fn().mockResolvedValue({
         current: "0.1.2",
         latest: "0.1.2",
@@ -1250,12 +1252,16 @@ describe("App settings", () => {
     const badge = getRequiredElement(".topbar .version-badge");
 
     expect(badge.classList.contains("current")).toBe(true);
-    expect(badge.getAttribute("title")).toBe("You are on the latest version");
+    expect(badge.getAttribute("title")).toBe("View release notes");
+    expect(badge.getAttribute("aria-label")).toBe("View release notes");
 
     badge.click();
-    await settle();
+    await waitUntil(() => openReleasePage.mock.calls.length === 1);
 
     expect(document.querySelector(".update-modal")).toBeNull();
+    expect(openReleasePage).toHaveBeenCalledWith(
+      "https://github.com/lisyoen/photodedup/releases/tag/v0.1.2"
+    );
   });
 
   it("shows only the current version when the latest-version check fails", async () => {
@@ -1285,7 +1291,7 @@ describe("App settings", () => {
     const badge = getRequiredElement(".topbar .version-badge");
 
     expect(badge.classList.contains("current")).toBe(true);
-    expect(badge.getAttribute("title")).toBe("Failed to check latest version");
+    expect(badge.getAttribute("title")).toBe("View release notes");
 
     badge.click();
     await settle();
@@ -1342,10 +1348,12 @@ describe("App settings", () => {
       isSourceInstall: boolean;
     }) => void> = [];
     const startUpdate = vi.fn().mockResolvedValue({ ok: true });
+    const openReleasePage = vi.fn().mockResolvedValue(undefined);
     window.shell = {
       selectFolder: vi.fn(),
       selectFolders: vi.fn(),
       startUpdate,
+      openReleasePage,
       onTrayScanNow: vi.fn(() => () => undefined),
       onUpdateAvailable: vi.fn((callback) => {
         updateAvailableCallbacks.push(callback);
@@ -1372,6 +1380,15 @@ describe("App settings", () => {
 
     expect(document.body.textContent).toContain("current v0.1.2");
     expect(document.body.textContent).toContain("Release notes");
+    const releaseNotesLink = Array.from(document.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "Release notes"
+    );
+    expect(releaseNotesLink).toBeDefined();
+    releaseNotesLink?.click();
+    await waitUntil(() => openReleasePage.mock.calls.length === 1);
+    expect(openReleasePage).toHaveBeenCalledWith(
+      "https://github.com/lisyoen/photodedup/releases/tag/v0.2.0"
+    );
     getButton("Update").click();
 
     await waitUntil(() => startUpdate.mock.calls.length === 1);

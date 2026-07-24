@@ -119,6 +119,7 @@ const ko: Record<keyof typeof en, string> = {
   "update.versionBadge.latestTitle": "최신 버전입니다",
   "update.versionBadge.checkFailedTitle": "최신 버전 확인 실패",
   "update.versionBadge.updateTitle": "업데이트 창 열기",
+  "update.versionBadge.releaseNotesTitle": "릴리즈노트 보기",
   "update.install": "업데이트",
   "update.openReleasePage": "릴리스 페이지 열기",
   "update.later": "나중에",

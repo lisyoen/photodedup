@@ -119,6 +119,7 @@ const ja: Record<keyof typeof en, string> = {
   "update.versionBadge.latestTitle": "最新バージョンです",
   "update.versionBadge.checkFailedTitle": "最新バージョンを確認できませんでした",
   "update.versionBadge.updateTitle": "更新ダイアログを開く",
+  "update.versionBadge.releaseNotesTitle": "リリースノートを見る",
   "update.install": "更新",
   "update.openReleasePage": "リリースページを開く",
   "update.later": "後で",

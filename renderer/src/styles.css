@@ -166,7 +166,11 @@ h2 {
 }
 
 .version-badge.current {
-  cursor: default;
+  cursor: pointer;
+}
+
+.version-badge.current:hover {
+  background: rgba(143, 156, 173, 0.12);
 }
 
 .version-badge.available {
