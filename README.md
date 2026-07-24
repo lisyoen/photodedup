@@ -34,6 +34,7 @@ https://github.com/lisyoen/photodedup/releases
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v0.1.6 | 2026-07-24 | Periodic update check & persistent toasts. |
 | v0.1.4 | 2026-07-18 | Added incremental scan cache stats, skipped regrouping when no new files are found, and kept source-install update fixes current. |
 | v0.1.3 | 2026-07-18 | Fixed source-install update commands to run from the correct package directories. |
 | v0.1.2 | 2026-07-18 | Added startup update checks, version badge feedback, and update flow coverage. |
