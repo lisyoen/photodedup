@@ -21,6 +21,7 @@ const en = {
   "groups.noneLoaded": "No groups loaded.",
   "groups.photoCount": "{count} photos",
   "groups.classified": "Done",
+  "groups.loading": "Loading current groups...",
   "scan.title": "Scan",
   "scan.noFolder": "Add a scan folder",
   "scan.moreFolders": "+ {count} more",

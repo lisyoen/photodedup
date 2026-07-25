@@ -23,6 +23,7 @@ const ja: Record<keyof typeof en, string> = {
   "groups.noneLoaded": "読み込まれたグループはありません。",
   "groups.photoCount": "{count}枚",
   "groups.classified": "完了",
+  "groups.loading": "最新のグループを読み込み中...",
   "scan.title": "スキャン",
   "scan.noFolder": "スキャンフォルダーを追加してください",
   "scan.moreFolders": "他 {count} 件",

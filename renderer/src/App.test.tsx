@@ -121,6 +121,93 @@ describe("App settings", () => {
     expect(document.querySelector(".preview-banner")).toBeNull();
   });
 
+  it("does not render a classified group from the startup snapshot", async () => {
+    window.sidecar = { port: 49152, token: "secret-token" };
+    saveStoredScanFolders(["D:\\Snapshot Photos"]);
+    const classified = applyGroupDetail();
+    classified.group.completed = true;
+    vi.spyOn(HttpDataSource.prototype, "loadGroupSnapshot").mockResolvedValue({
+      version: 1,
+      generated_at: "2026-07-25T00:00:00Z",
+      roots: ["D:\\Snapshot Photos"],
+      items: [classified],
+    });
+    const fresh = deferred<Awaited<ReturnType<HttpDataSource["listGroupDetails"]>>>();
+    vi.spyOn(HttpDataSource.prototype, "listGroupDetails").mockReturnValue(fresh.promise);
+
+    root.render(<I18nProvider><App /></I18nProvider>);
+
+    await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === true);
+    expect(document.body.textContent).not.toContain("#101");
+    fresh.resolve({ items: [], next_cursor: null, total_estimate: 0 });
+    await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === false);
+  });
+
+  it("keeps an unresolved snapshot group stable when fresh data arrives", async () => {
+    window.sidecar = { port: 49152, token: "secret-token" };
+    saveStoredScanFolders(["D:\\Snapshot Photos"]);
+    const unresolved = scanFolderGroupDetail("D:\\Snapshot Photos");
+    vi.spyOn(HttpDataSource.prototype, "loadGroupSnapshot").mockResolvedValue({
+      version: 1,
+      generated_at: "2026-07-25T00:00:00Z",
+      roots: ["D:\\Snapshot Photos"],
+      items: [unresolved],
+    });
+    const fresh = deferred<Awaited<ReturnType<HttpDataSource["listGroupDetails"]>>>();
+    vi.spyOn(HttpDataSource.prototype, "listGroupDetails").mockReturnValue(fresh.promise);
+
+    root.render(<I18nProvider><App /></I18nProvider>);
+
+    await waitUntil(() => document.body.textContent?.includes("#501") === true);
+    expect(document.querySelectorAll(".group-card")).toHaveLength(1);
+    fresh.resolve({ items: [unresolved], next_cursor: null, total_estimate: 1 });
+    await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === false);
+    expect(document.querySelectorAll(".group-card")).toHaveLength(1);
+    expect(document.body.textContent).toContain("#501");
+  });
+
+  it("shows startup loading while group and apply-all actions are disabled", async () => {
+    window.sidecar = { port: 49152, token: "secret-token" };
+    saveStoredScanFolders(["D:\\Snapshot Photos"]);
+    const unresolved = scanFolderGroupDetail("D:\\Snapshot Photos");
+    vi.spyOn(HttpDataSource.prototype, "loadGroupSnapshot").mockResolvedValue({
+      version: 1,
+      generated_at: "2026-07-25T00:00:00Z",
+      roots: ["D:\\Snapshot Photos"],
+      items: [unresolved],
+    });
+    const fresh = deferred<Awaited<ReturnType<HttpDataSource["listGroupDetails"]>>>();
+    vi.spyOn(HttpDataSource.prototype, "listGroupDetails").mockReturnValue(fresh.promise);
+
+    root.render(<I18nProvider><App /></I18nProvider>);
+
+    await waitUntil(() =>
+      document.body.textContent?.includes("Loading current groups...") === true &&
+      document.body.textContent?.includes("#501") === true
+    );
+    expect(getRequiredElement(".actions button").hasAttribute("disabled")).toBe(true);
+    expect(getRequiredElement(".apply-button").hasAttribute("disabled")).toBe(true);
+    fresh.resolve({ items: [unresolved], next_cursor: null, total_estimate: 1 });
+    await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === false);
+  });
+
+  it("hides startup loading and enables actions after fresh data arrives", async () => {
+    window.sidecar = { port: 49152, token: "secret-token" };
+    saveStoredScanFolders(["D:\\Snapshot Photos"]);
+    const classified = applyGroupDetail();
+    vi.spyOn(HttpDataSource.prototype, "loadGroupSnapshot").mockResolvedValue(null);
+    const fresh = deferred<Awaited<ReturnType<HttpDataSource["listGroupDetails"]>>>();
+    vi.spyOn(HttpDataSource.prototype, "listGroupDetails").mockReturnValue(fresh.promise);
+
+    root.render(<I18nProvider><App /></I18nProvider>);
+
+    await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === true);
+    fresh.resolve({ items: [classified], next_cursor: null, total_estimate: 1 });
+    await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === false);
+    expect(getRequiredElement(".actions button").hasAttribute("disabled")).toBe(false);
+    expect(getRequiredElement(".apply-button").hasAttribute("disabled")).toBe(false);
+  });
+
   it("does not auto-scan on startup when manifest data exists with no unresolved groups", async () => {
     window.sidecar = { port: 49152, token: "secret-token" };
     saveStoredScanFolders(["D:\\Resolved Photos"]);
@@ -2901,6 +2988,14 @@ function dispatchWheel(target: EventTarget, deltaY: number, init: WheelEventInit
 
 function settle() {
   return new Promise((resolve) => window.setTimeout(resolve, 0));
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
 }
 
 async function flushPromises() {

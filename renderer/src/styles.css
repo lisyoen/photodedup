@@ -826,6 +826,11 @@ button:disabled {
   margin: 12px 0 0;
 }
 
+.groups-loading {
+  margin: 12px 0;
+  color: #7dd3c7;
+}
+
 .settings-note {
   margin: 0;
 }

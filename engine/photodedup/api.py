@@ -358,7 +358,12 @@ def create_app(data_dir: str | Path, token: str) -> FastAPI:
         job = Job(id=f"cleanup_{uuid.uuid4().hex}", kind="cleanup", phase="planning")
         with jobs_lock:
             jobs[job.id] = job
-        threading.Thread(target=_run_cleanup_job, args=(job, db_path, mode, group_ids), daemon=True).start()
+        settings = _load_settings(settings_path)
+        threading.Thread(
+            target=_run_cleanup_job,
+            args=(job, db_path, cache_dir, list(settings["scan_folders"]), mode, group_ids),
+            daemon=True,
+        ).start()
         targets = _count_delete_marks(db_path, group_ids)
         return {"job_id": job.id, "status": job.status, "targets": targets}
 
@@ -724,7 +729,14 @@ def _manifest_threshold(manifest: Manifest) -> int | None:
         return None
 
 
-def _run_cleanup_job(job: Job, db_path: Path, mode: str, group_ids: list[int] | None = None) -> None:
+def _run_cleanup_job(
+    job: Job,
+    db_path: Path,
+    cache_dir: Path,
+    roots: list[str],
+    mode: str,
+    group_ids: list[int] | None = None,
+) -> None:
     manifest = Manifest(db_path, run_migrations=False)
     try:
         group_filter, params = _group_id_filter("AND", group_ids)
@@ -778,6 +790,10 @@ def _run_cleanup_job(job: Job, db_path: Path, mode: str, group_ids: list[int] | 
                 failed += 1
             job.set_progress(index, total, "db_update")
         _record_terminal_evaluated_groups(manifest, changed_group_ids)
+        try:
+            _write_group_snapshot(cache_dir, manifest, roots)
+        except Exception as exc:
+            print(f"group snapshot save failed roots={roots} error={exc}", file=sys.stderr, flush=True)
         with job.lock:
             job.status = "done"
             job.phase = "done"

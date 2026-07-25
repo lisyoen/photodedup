@@ -23,6 +23,7 @@ const ko: Record<keyof typeof en, string> = {
   "groups.noneLoaded": "로드된 그룹이 없습니다.",
   "groups.photoCount": "{count}장",
   "groups.classified": "완료",
+  "groups.loading": "최신 그룹을 불러오는 중...",
   "scan.title": "스캔",
   "scan.noFolder": "스캔 폴더를 추가하세요",
   "scan.moreFolders": "외 {count}개",

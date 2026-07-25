@@ -110,6 +110,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
   const [activeScanId, setActiveScanId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [groupsLoading, setGroupsLoading] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [applyOpen, setApplyOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -174,7 +175,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const canSelectSettingsFolders = Boolean(window.shell?.selectFolders);
   const scanRunning = scanStatus ? !TERMINAL_SCAN_STATES.has(scanStatus.status) : false;
   const canReview = selected !== null;
-  const groupActionsDisabled = selected === null || busy;
+  const groupActionsDisabled = selected === null || busy || groupsLoading;
   const applyScope = useMemo(() => {
     const ids = classifiedGroupIds(groups);
     const scopedGroups = groups.filter(({ group }) => ids.includes(group.id));
@@ -670,6 +671,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       }
 
       setToast(null);
+      setGroupsLoading(true);
 
       try {
         if (scanFolders.length === 0) {
@@ -680,12 +682,11 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         }
 
         const activeRoots = scanFolders;
-        if (groupStatusFilter === "unresolved" && groupSortFilter === "savings") {
-          const snapshot = await dataSource.loadGroupSnapshot(activeRoots);
-          if (!cancelled && snapshot) {
-            setGroups(snapshot.items);
-            setSelectedGroupId(snapshot.items[0]?.group.id ?? null);
-          }
+        const snapshot = await dataSource.loadGroupSnapshot(activeRoots);
+        if (!cancelled && snapshot) {
+          const snapshotItems = filterAndSortGroups(snapshot.items, groupStatusFilter, groupSortFilter);
+          setGroups(snapshotItems);
+          setSelectedGroupId(snapshotItems[0]?.group.id ?? null);
         }
 
         const details = await loadGroups(dataSource, setGroups, setSelectedGroupId, scanFolders, {
@@ -714,7 +715,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       } catch (error) {
         if (!cancelled) showToast(error instanceof Error ? error.message : String(error), { error: true });
       } finally {
-        if (!cancelled) setBusy(false);
+        if (!cancelled) {
+          setBusy(false);
+          setGroupsLoading(false);
+        }
       }
     }
 
@@ -1260,7 +1264,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
             ref={applyTriggerButtonRef}
             className="apply-button"
             onClick={handleApplyAll}
-            disabled={applyDisabled}
+            disabled={applyDisabled || groupsLoading}
             title={t("app.applyAllShortcut")}
           >
             {t("app.applyAll")} <span>{applyScope.groupIds.length}</span>
@@ -1301,6 +1305,9 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
               <option value="quality">{t("filters.sort.quality")}</option>
             </select>
           </div>
+          {groupsLoading && !scanRunning && (
+            <p className="groups-loading" role="status">{t("groups.loading")}</p>
+          )}
           {groups.length === 0 ? (
             <p className="empty-note">{groupsEmptyMessage}</p>
           ) : groups.map((detail) => (
@@ -1733,6 +1740,28 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       )}
     </main>
   );
+}
+
+function filterAndSortGroups(
+  groups: GroupDetail[],
+  status: GroupStatusFilter,
+  sort: GroupSortFilter,
+): GroupDetail[] {
+  return groups
+    .filter((detail) => {
+      if (status === "unresolved") return !isClassifiedGroup(detail);
+      if (status === "processed") return isClassifiedGroup(detail);
+      return true;
+    })
+    .sort((left, right) => {
+      if (sort === "similarity") {
+        return (right.group.max_similarity ?? 0) - (left.group.max_similarity ?? 0);
+      }
+      if (sort === "quality") {
+        return (right.group.recommended_keep_image_id ?? 0) - (left.group.recommended_keep_image_id ?? 0);
+      }
+      return right.group.reclaimable_bytes - left.group.reclaimable_bytes;
+    });
 }
 
 function EngineConnectionErrorView({ message }: { message: string }) {

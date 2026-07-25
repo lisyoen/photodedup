@@ -1184,6 +1184,46 @@ def test_apply_trash_marks_deleted_images_resolved_and_moves_group_to_processed(
     assert [group["id"] for group in processed.json()["items"]] == [1]
 
 
+def test_apply_rewrites_snapshot_without_cleaned_group(tmp_path: Path) -> None:
+    data_dir, _ = _seed_apply_group(tmp_path)
+    roots = [str(tmp_path / "images")]
+    (data_dir / "settings.json").write_text(
+        json.dumps({**api_module.DEFAULT_SETTINGS, "scan_folders": roots}),
+        encoding="utf-8",
+    )
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        snapshot_path = api_module._write_group_snapshot(data_dir / "cache", manifest, roots)
+    finally:
+        manifest.close()
+    assert len(json.loads(snapshot_path.read_text(encoding="utf-8"))["items"]) == 1
+
+    client = _client(data_dir)
+    started = client.post("/apply", json={"mode": "trash"})
+    cleanup = _wait_cleanup(client, started.json()["job_id"])
+
+    assert cleanup["status"] == "done"
+    rewritten = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert rewritten["roots"] == roots
+    assert rewritten["items"] == []
+
+
+def test_apply_succeeds_when_snapshot_rewrite_fails(tmp_path: Path, monkeypatch) -> None:
+    data_dir, delete_file = _seed_apply_group(tmp_path)
+    client = _client(data_dir)
+
+    def fail_snapshot(*_args, **_kwargs):
+        raise OSError("snapshot disk unavailable")
+
+    monkeypatch.setattr(api_module, "_write_group_snapshot", fail_snapshot)
+    started = client.post("/apply", json={"mode": "permanent"})
+    cleanup = _wait_cleanup(client, started.json()["job_id"])
+
+    assert cleanup["status"] == "done"
+    assert cleanup["summary"] == {"deleted": 1, "failed": 0, "already_missing": 0}
+    assert not delete_file.exists()
+
+
 def test_apply_permanent_marks_deleted_images_resolved_and_moves_group_to_processed(tmp_path: Path) -> None:
     data_dir, delete_file = _seed_apply_group(tmp_path)
     client = _client(data_dir)
