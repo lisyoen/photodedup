@@ -1186,41 +1186,26 @@ describe("App settings", () => {
     expect(document.querySelector(".topbar .version-badge")?.textContent?.trim()).toBe("v0.1.2");
   });
 
-  it("shows an emphasized update badge and opens the existing update modal on click", async () => {
-    const getAppVersion = vi.fn().mockResolvedValue("0.1.2");
+  it("automatically starts a newly detected update once without opening the modal", async () => {
+    const startUpdate = vi.fn().mockResolvedValue({ ok: true });
     window.shell = {
       selectFolder: vi.fn(),
       selectFolders: vi.fn(),
-      getAppVersion,
+      startUpdate,
+      getAppVersion: vi.fn().mockResolvedValue("0.1.2"),
       getUpdateAvailability: vi.fn().mockResolvedValue({
-        latest: "0.1.3",
-        current: "0.1.2",
-        htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.1.3",
-        updateAvailable: true,
-        isSourceInstall: true,
+        latest: "0.1.3", current: "0.1.2", htmlUrl: "https://example.com/v0.1.3",
+        updateAvailable: true, isSourceInstall: true,
       }),
       onTrayScanNow: vi.fn(() => () => undefined),
       onUpdateAvailable: vi.fn(() => () => undefined),
       onUpdateProgress: vi.fn(() => () => undefined),
     };
-
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-
-    await waitUntil(() => document.body.textContent?.includes("New version v0.1.3 is available") === true);
-    getButton("Later").click();
-    await waitUntil(() => document.querySelector(".update-modal") === null);
-    const badge = getRequiredElement(".topbar .version-badge");
-
-    expect(badge.classList.contains("available")).toBe(true);
-    expect(badge.textContent?.trim()).toBe("v0.1.2 -> v0.1.3 update");
-
-    badge.click();
-
-    await waitUntil(() => document.body.textContent?.includes("New version v0.1.3 is available") === true);
+    root.render(<I18nProvider><App /></I18nProvider>);
+    await waitUntil(() => startUpdate.mock.calls.length === 1);
+    await settle();
+    expect(startUpdate).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".update-modal")).toBeNull();
   });
 
   it("opens the current version release notes from the latest-version badge", async () => {
@@ -1251,7 +1236,7 @@ describe("App settings", () => {
     await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2 · latest v0.1.2");
     const badge = getRequiredElement(".topbar .version-badge");
 
-    expect(badge.classList.contains("current")).toBe(true);
+    expect(badge.classList.contains("idle")).toBe(true);
     expect(badge.getAttribute("title")).toBe("View release notes");
     expect(badge.getAttribute("aria-label")).toBe("View release notes");
 
@@ -1264,7 +1249,7 @@ describe("App settings", () => {
     );
   });
 
-  it("shows only the current version when the latest-version check fails", async () => {
+  it("shows only the current version when the latest-version check is unavailable", async () => {
     window.shell = {
       selectFolder: vi.fn(),
       selectFolders: vi.fn(),
@@ -1290,8 +1275,8 @@ describe("App settings", () => {
     await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2");
     const badge = getRequiredElement(".topbar .version-badge");
 
-    expect(badge.classList.contains("current")).toBe(true);
-    expect(badge.getAttribute("title")).toBe("View release notes");
+    expect(badge.classList.contains("unavailable")).toBe(true);
+    expect(badge.getAttribute("title")).toBe("Failed to check latest version");
 
     badge.click();
     await settle();
@@ -1299,7 +1284,8 @@ describe("App settings", () => {
     expect(document.querySelector(".update-modal")).toBeNull();
   });
 
-  it("updates the version badge from the update availability event after an empty mount lookup", async () => {
+  it("does not duplicate startUpdate when another periodic check runs while updating", async () => {
+    vi.useFakeTimers();
     const updateAvailableCallbacks: Array<(update: {
       latest: string | null;
       current: string;
@@ -1317,6 +1303,11 @@ describe("App settings", () => {
         updateAvailableCallbacks.push(callback);
         return () => undefined;
       }),
+      startUpdate: vi.fn().mockResolvedValue({ ok: true }),
+      checkForUpdates: vi.fn().mockResolvedValue({
+        latest: "0.1.3", current: "0.1.2", htmlUrl: "https://example.com/v0.1.3",
+        updateAvailable: true, isSourceInstall: true,
+      }),
       onUpdateProgress: vi.fn(() => () => undefined),
     };
 
@@ -1326,7 +1317,7 @@ describe("App settings", () => {
       </I18nProvider>
     );
 
-    await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2");
+    await waitUntilFake(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2");
     updateAvailableCallbacks[0]({
       latest: "0.1.3",
       current: "0.1.2",
@@ -1335,11 +1326,26 @@ describe("App settings", () => {
       isSourceInstall: true,
     });
 
-    await waitUntil(() => document.querySelector(".topbar .version-badge")?.textContent?.trim() === "v0.1.2 -> v0.1.3 update");
-    expect(getRequiredElement(".topbar .version-badge").classList.contains("available")).toBe(true);
+    await waitUntilFake(() => Boolean(window.shell?.startUpdate && vi.mocked(window.shell.startUpdate).mock.calls.length === 1));
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(window.shell.startUpdate).toHaveBeenCalledTimes(1);
+    expect(window.shell.checkForUpdates).not.toHaveBeenCalled();
+    expect(document.querySelector(".update-modal")).toBeNull();
   });
 
-  it("renders the source update modal and starts the update", async () => {
+  it("defers automatic update during a scan and starts when the scan becomes idle", async () => {
+    vi.useFakeTimers();
+    window.sidecar = { port: 49152, token: "secret-token" };
+    saveStoredScanFolders(["D:\\Photos"]);
+    vi.spyOn(HttpDataSource.prototype, "listGroupDetails").mockResolvedValue({ items: [], next_cursor: null, total_estimate: 0 });
+    vi.spyOn(HttpDataSource.prototype, "getHealth").mockResolvedValue({
+      status: "ok", version: "0.1.0", db_path: "db", thumbs_dir: "thumbs", images: 1, groups: 0,
+    });
+    vi.spyOn(HttpDataSource.prototype, "startScan").mockResolvedValue({ scan_id: "scan-1", status: "queued" });
+    vi.spyOn(HttpDataSource.prototype, "getScan").mockResolvedValue({
+      scan_id: "scan-1", status: "done", phase: "done", done: 1, total: 1,
+      cancellable: false, summary: { groups_found: 0 },
+    });
     const updateAvailableCallbacks: Array<(update: {
       latest: string | null;
       current: string;
@@ -1348,12 +1354,10 @@ describe("App settings", () => {
       isSourceInstall: boolean;
     }) => void> = [];
     const startUpdate = vi.fn().mockResolvedValue({ ok: true });
-    const openReleasePage = vi.fn().mockResolvedValue(undefined);
     window.shell = {
       selectFolder: vi.fn(),
       selectFolders: vi.fn(),
       startUpdate,
-      openReleasePage,
       onTrayScanNow: vi.fn(() => () => undefined),
       onUpdateAvailable: vi.fn((callback) => {
         updateAvailableCallbacks.push(callback);
@@ -1362,13 +1366,11 @@ describe("App settings", () => {
       onUpdateProgress: vi.fn(() => () => undefined),
     };
 
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-
-    await waitUntil(() => updateAvailableCallbacks.length === 1);
+    root.render(<I18nProvider><App /></I18nProvider>);
+    await waitUntilFake(() => updateAvailableCallbacks.length === 1);
+    await waitUntilFake(() => document.body.textContent?.includes("Start scan") === true);
+    getButton("Start scan").click();
+    await waitUntilFake(() => document.body.textContent?.includes("Cancel scan") === true);
     updateAvailableCallbacks[0]({
       latest: "0.2.0",
       current: "0.1.2",
@@ -1376,112 +1378,95 @@ describe("App settings", () => {
       updateAvailable: true,
       isSourceInstall: true,
     });
-    await waitUntil(() => document.body.textContent?.includes("New version v0.2.0 is available") === true);
-
-    expect(document.body.textContent).toContain("current v0.1.2");
-    expect(document.body.textContent).toContain("Release notes");
-    const releaseNotesLink = Array.from(document.querySelectorAll("a")).find(
-      (link) => link.textContent?.trim() === "Release notes"
-    );
-    expect(releaseNotesLink).toBeDefined();
-    releaseNotesLink?.click();
-    await waitUntil(() => openReleasePage.mock.calls.length === 1);
-    expect(openReleasePage).toHaveBeenCalledWith(
-      "https://github.com/lisyoen/photodedup/releases/tag/v0.2.0"
-    );
-    getButton("Update").click();
-
-    await waitUntil(() => startUpdate.mock.calls.length === 1);
+    await flushPromises();
+    expect(startUpdate).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await waitUntilFake(() => startUpdate.mock.calls.length === 1);
     expect(startUpdate).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the release page for packaged installs and suppresses later reminders in the session", async () => {
-    const updateAvailableCallbacks: Array<(update: {
-      latest: string | null;
-      current: string;
-      htmlUrl: string | null;
-      updateAvailable: boolean;
-      isSourceInstall: boolean;
+  it("shows completion on the badge without restarting automatically", async () => {
+    const progressCallbacks: Array<(progress: {
+      status: "running" | "succeeded" | "failed";
+      stage: { id: string; label: string }; error?: string; logPath?: string;
     }) => void> = [];
-    const openReleasePage = vi.fn().mockResolvedValue(undefined);
+    const restartAfterUpdate = vi.fn().mockResolvedValue(undefined);
     window.shell = {
       selectFolder: vi.fn(),
       selectFolders: vi.fn(),
-      openReleasePage,
-      onTrayScanNow: vi.fn(() => () => undefined),
-      onUpdateAvailable: vi.fn((callback) => {
-        updateAvailableCallbacks.push(callback);
-        return () => undefined;
+      startUpdate: vi.fn().mockResolvedValue({ ok: true }),
+      restartAfterUpdate,
+      getUpdateAvailability: vi.fn().mockResolvedValue({
+        latest: "0.2.0", current: "0.1.2", htmlUrl: "https://example.com/v0.2.0",
+        updateAvailable: true, isSourceInstall: true,
       }),
-      onUpdateProgress: vi.fn(() => () => undefined),
-    };
-
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-
-    await waitUntil(() => updateAvailableCallbacks.length === 1);
-    const update = {
-      latest: "0.2.0",
-      current: "0.1.2",
-      htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.2.0",
-      updateAvailable: true,
-      isSourceInstall: false,
-    };
-    updateAvailableCallbacks[0](update);
-    await waitUntil(() => document.body.textContent?.includes("Open release page") === true);
-    getButton("Later").click();
-    await settle();
-    updateAvailableCallbacks[0](update);
-    await settle();
-
-    expect(document.body.textContent).not.toContain("Open release page");
-    expect(openReleasePage).not.toHaveBeenCalled();
-  });
-
-  it("checks every 60 seconds and announces a newly detected version only once", async () => {
-    vi.useFakeTimers();
-    const update = {
-      latest: "0.1.6",
-      current: "0.1.5",
-      htmlUrl: "https://github.com/lisyoen/photodedup/releases/tag/v0.1.6",
-      updateAvailable: true,
-      isSourceInstall: true,
-    };
-    const checkForUpdates = vi.fn().mockResolvedValue(update);
-    window.shell = {
-      selectFolder: vi.fn(),
-      selectFolders: vi.fn(),
-      getAppVersion: vi.fn().mockResolvedValue("0.1.5"),
-      getUpdateAvailability: vi.fn().mockResolvedValue(null),
-      checkForUpdates,
       onTrayScanNow: vi.fn(() => () => undefined),
       onUpdateAvailable: vi.fn(() => () => undefined),
-      onUpdateProgress: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn((callback) => { progressCallbacks.push(callback); return () => undefined; }),
     };
+    root.render(<I18nProvider><App /></I18nProvider>);
+    await waitUntil(() => progressCallbacks.length === 1);
+    progressCallbacks[0]({ status: "succeeded", stage: { id: "complete", label: "Complete" } });
+    await waitUntil(() => getRequiredElement(".version-badge").textContent?.includes("Update complete") === true);
+    expect(restartAfterUpdate).not.toHaveBeenCalled();
+  });
 
-    root.render(
-      <I18nProvider>
-        <App />
-      </I18nProvider>
-    );
-    await waitUntilFake(() => document.querySelector(".topbar .version-badge") !== null);
+  it("restarts exactly once when the ready badge is clicked repeatedly", async () => {
+    const progressCallbacks: Array<(progress: {
+      status: "running" | "succeeded" | "failed"; stage: { id: string; label: string };
+    }) => void> = [];
+    const restartAfterUpdate = vi.fn().mockResolvedValue(undefined);
+    window.shell = {
+      selectFolder: vi.fn(),
+      selectFolders: vi.fn(),
+      startUpdate: vi.fn().mockResolvedValue({ ok: true }),
+      restartAfterUpdate,
+      getUpdateAvailability: vi.fn().mockResolvedValue({
+        latest: "0.2.0", current: "0.1.2", htmlUrl: "https://example.com/v0.2.0",
+        updateAvailable: true, isSourceInstall: true,
+      }),
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn((callback) => { progressCallbacks.push(callback); return () => undefined; }),
+    };
+    root.render(<I18nProvider><App /></I18nProvider>);
+    await waitUntil(() => progressCallbacks.length === 1);
+    progressCallbacks[0]({ status: "succeeded", stage: { id: "complete", label: "Complete" } });
+    await waitUntil(() => getRequiredElement(".version-badge").classList.contains("ready"));
+    const badge = getRequiredElement(".version-badge");
+    badge.click();
+    badge.click();
+    badge.click();
+    await waitUntil(() => restartAfterUpdate.mock.calls.length === 1);
+    expect(restartAfterUpdate).toHaveBeenCalledTimes(1);
+  });
 
-    await vi.advanceTimersByTimeAsync(60_000);
-    await waitUntilFake(() => checkForUpdates.mock.calls.length === 1);
-    await waitUntilFake(() => document.querySelector(".topbar .version-badge")?.textContent?.includes("v0.1.6") === true);
-    expect(document.querySelector(".topbar .version-badge")?.textContent).toContain("v0.1.6 update");
-    expect(document.body.textContent).toContain("Update v0.1.6 is available.");
-
-    getButton("Dismiss notification").click();
-    await waitUntilFake(() => document.querySelector(".toast") === null);
-    await vi.advanceTimersByTimeAsync(60_000);
-    await waitUntilFake(() => checkForUpdates.mock.calls.length === 2);
-
-    expect(document.querySelector(".toast")).toBeNull();
-    expect(document.querySelector(".update-modal")).toBeNull();
+  it("shows failure on the badge and opens details without restarting", async () => {
+    const progressCallbacks: Array<(progress: {
+      status: "running" | "succeeded" | "failed"; stage: { id: string; label: string };
+      error?: string; logPath?: string;
+    }) => void> = [];
+    const restartAfterUpdate = vi.fn();
+    window.shell = {
+      selectFolder: vi.fn(), selectFolders: vi.fn(),
+      startUpdate: vi.fn().mockResolvedValue({ ok: true }), restartAfterUpdate,
+      getUpdateAvailability: vi.fn().mockResolvedValue({
+        latest: "0.2.0", current: "0.1.2", htmlUrl: "https://example.com/v0.2.0",
+        updateAvailable: true, isSourceInstall: true,
+      }),
+      onTrayScanNow: vi.fn(() => () => undefined),
+      onUpdateAvailable: vi.fn(() => () => undefined),
+      onUpdateProgress: vi.fn((callback) => { progressCallbacks.push(callback); return () => undefined; }),
+    };
+    root.render(<I18nProvider><App /></I18nProvider>);
+    await waitUntil(() => progressCallbacks.length === 1);
+    progressCallbacks[0]({
+      status: "failed", stage: { id: "build", label: "Build" }, error: "failed", logPath: "/tmp/update.log",
+    });
+    await waitUntil(() => getRequiredElement(".version-badge").textContent?.includes("Update failed") === true);
+    getRequiredElement(".version-badge").click();
+    await waitUntil(() => document.querySelector(".update-modal") !== null);
+    expect(restartAfterUpdate).not.toHaveBeenCalled();
   });
 
   it("retries 304 or failed periodic checks silently on the next interval", async () => {

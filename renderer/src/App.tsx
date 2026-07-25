@@ -66,6 +66,7 @@ const UPDATE_CHECK_INTERVAL_MS = 60_000;
 const HOURS_TO_MS = 60 * 60 * 1000;
 const SHORTCUT_PRESS_MS = 150;
 const THUMBNAIL_ZOOM_STEP = 1.15;
+type UpdateFlowState = "idle" | "updating" | "ready" | "failed" | "unavailable";
 type AvailableUpdateStatus = RendererUpdateStatus & {
   latest: string;
   htmlUrl: string;
@@ -135,6 +136,8 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const [updateModalOpen, setUpdateModalOpen] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<RendererUpdateProgress | null>(null);
   const [updateBusy, setUpdateBusy] = useState(false);
+  const [updateFlowState, setUpdateFlowState] = useState<UpdateFlowState>("idle");
+  const [retryUpdateVersion, setRetryUpdateVersion] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
   const toastTimer = useRef<number | undefined>();
   const shortcutPressTimer = useRef<number | undefined>();
@@ -150,8 +153,9 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const primaryKeyboardActionRef = useRef<() => void>(() => undefined);
   const cancelKeyboardActionRef = useRef<() => void>(() => undefined);
   const applyConfirmRef = useRef<() => Promise<void>>(async () => undefined);
-  const updateDismissed = useRef(false);
-  const notifiedUpdateVersions = useRef(new Set<string>());
+  const autoUpdateAttempts = useRef(new Map<string, number>());
+  const restartRequested = useRef(false);
+  const updateFlowStateRef = useRef<UpdateFlowState>("idle");
   const settingsOpenScanFolders = useRef<string[]>(scanFolders);
   const activeScanIdRef = useRef<string | null>(null);
   const settingsSyncReady = useRef(false);
@@ -188,7 +192,15 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const applyDisabled = applyScope.groupIds.length === 0;
   const availableUpdate = isAvailableUpdateStatus(updateStatus) ? updateStatus : null;
   const displayedVersion = formatVersion(updateStatus?.current ?? appVersion ?? null);
-  const versionBadgeLabel = updateStatus?.updateAvailable && updateStatus.latest !== null
+  const versionBadgeLabel = updateFlowState === "ready"
+    ? t("update.versionBadge.ready")
+    : updateFlowState === "failed"
+      ? t("update.versionBadge.failed")
+      : updateFlowState === "updating"
+        ? t("update.versionBadge.updating", {
+          stage: updateProgress?.stage.label ?? t("update.status.starting"),
+        })
+        : updateStatus?.updateAvailable && updateStatus.latest !== null
     ? t("update.versionBadge.available", {
       current: displayedVersion,
       latest: formatVersion(updateStatus.latest),
@@ -199,9 +211,17 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         latest: formatVersion(updateStatus.latest),
       })
       : displayedVersion;
-  const versionBadgeTitle = updateStatus?.updateAvailable
-    ? t("update.versionBadge.updateTitle")
-    : t("update.versionBadge.releaseNotesTitle");
+  const versionBadgeTitle = updateFlowState === "ready"
+    ? t("update.versionBadge.readyTitle")
+    : updateFlowState === "failed"
+      ? t("update.versionBadge.failedTitle")
+      : updateFlowState === "updating"
+        ? t("update.versionBadge.updatingTitle")
+        : updateFlowState === "unavailable"
+          ? t("update.versionBadge.checkFailedTitle")
+          : updateStatus?.updateAvailable
+            ? t("update.versionBadge.updateTitle")
+            : t("update.versionBadge.releaseNotesTitle");
 
   const updateThumbnailZoom = useCallback((updater: (current: number) => number) => {
     setThumbnailZoom((current) => {
@@ -257,6 +277,11 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       () => setToast(null),
       options.error ? ERROR_TOAST_TIMEOUT_MS : INFO_TOAST_TIMEOUT_MS
     );
+  }
+
+  function transitionUpdateState(state: UpdateFlowState) {
+    updateFlowStateRef.current = state;
+    setUpdateFlowState(state);
   }
 
   function dismissToast() {
@@ -476,13 +501,12 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     function showUpdateStatus(update: RendererUpdateStatus | null) {
       if (!update || cancelled) return;
       setUpdateStatus(update);
-      if (update.updateAvailable) {
+      if (update.updateAvailable && update.latest) {
         setUpdateProgress(null);
-        if (update.latest && !notifiedUpdateVersions.current.has(update.latest)) {
-          notifiedUpdateVersions.current.add(update.latest);
-          showToast(t("toast.updateAvailable", { version: formatVersion(update.latest) }));
-        }
-        if (!updateDismissed.current) setUpdateModalOpen(true);
+      } else if (update.latest === null) {
+        transitionUpdateState("unavailable");
+      } else if (updateFlowStateRef.current !== "ready") {
+        transitionUpdateState("idle");
       }
     }
 
@@ -493,6 +517,15 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       if (cancelled) return;
       setUpdateProgress(progress);
       setUpdateBusy(progress.status === "running");
+      if (progress.status === "running") {
+        transitionUpdateState("updating");
+      } else if (progress.status === "succeeded") {
+        const wasReady = updateFlowStateRef.current === "ready";
+        transitionUpdateState("ready");
+        if (!wasReady) showToast(t("toast.updateComplete"));
+      } else {
+        transitionUpdateState("failed");
+      }
     });
     window.shell?.getUpdateAvailability?.()
       .then(showUpdateStatus)
@@ -503,7 +536,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       removeAvailableListener?.();
       removeProgressListener?.();
     };
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!window.shell?.checkForUpdates) return;
@@ -511,22 +544,25 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
     let cancelled = false;
     let checking = false;
     const check = async () => {
-      if (checking || updateBusy || updateModalOpen) return;
+      if (checking || updateFlowStateRef.current === "updating" || updateFlowStateRef.current === "ready") return;
       checking = true;
       try {
         const update = await window.shell?.checkForUpdates?.();
         if (!update || cancelled) return;
         setUpdateStatus(update);
-        if (
-          update.updateAvailable
-          && update.latest
-          && !notifiedUpdateVersions.current.has(update.latest)
-        ) {
-          notifiedUpdateVersions.current.add(update.latest);
-          showToast(t("toast.updateAvailable", { version: formatVersion(update.latest) }));
+        if (update.updateAvailable && update.latest) {
+          if (updateFlowStateRef.current === "failed") {
+            setRetryUpdateVersion(update.latest);
+          }
+        } else if (update.latest === null) {
+          transitionUpdateState("unavailable");
+        } else {
+          transitionUpdateState("idle");
         }
       } catch {
-        // Periodic update checks retry silently on the next interval.
+        if (!(["updating", "ready"] as UpdateFlowState[]).includes(updateFlowStateRef.current)) {
+          transitionUpdateState("unavailable");
+        }
       } finally {
         checking = false;
       }
@@ -536,7 +572,21 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [t, updateBusy, updateModalOpen]);
+  }, []);
+
+  useEffect(() => {
+    if (!availableUpdate || busy || scanRunning) return;
+    if (updateFlowState === "updating" || updateFlowState === "ready") return;
+    const attempts = autoUpdateAttempts.current.get(availableUpdate.latest) ?? 0;
+    const canRetry = updateFlowState === "failed"
+      && retryUpdateVersion === availableUpdate.latest
+      && attempts < 2;
+    if (attempts > 0 && !canRetry) return;
+
+    autoUpdateAttempts.current.set(availableUpdate.latest, attempts + 1);
+    setRetryUpdateVersion(null);
+    void startBackgroundUpdate();
+  }, [availableUpdate, busy, scanRunning, retryUpdateVersion, updateFlowState]);
 
   useEffect(() => {
     let cancelled = false;
@@ -922,7 +972,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   function runPrimaryKeyboardAction() {
     if (helpOpen) return;
     if (updateModalOpen && availableUpdate) {
-      if (!updateBusy) void handleUpdateConfirm();
+      if (updateFlowState === "failed") {
+        autoUpdateAttempts.current.delete(availableUpdate.latest);
+        transitionUpdateState("idle");
+      }
       return;
     }
     if (cacheClearConfirmOpen) {
@@ -976,31 +1029,30 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }
 
   function dismissUpdateForSession() {
-    updateDismissed.current = true;
     setUpdateModalOpen(false);
-    setUpdateProgress(null);
-    setUpdateBusy(false);
   }
 
-  async function handleUpdateConfirm() {
+  async function startBackgroundUpdate() {
     if (!availableUpdate) return;
     if (!availableUpdate.isSourceInstall) {
-      await window.shell?.openReleasePage?.(availableUpdate.htmlUrl);
-      dismissUpdateForSession();
+      transitionUpdateState("failed");
       return;
     }
-    if (!window.shell?.startUpdate) {
+    if (!window.shell?.startUpdate || updateFlowStateRef.current === "updating" || updateFlowStateRef.current === "ready") {
       return;
     }
 
+    transitionUpdateState("updating");
     setUpdateBusy(true);
     setUpdateProgress({
       status: "running",
       stage: { id: "starting", label: t("update.status.starting") },
     });
+    showToast(t("toast.updateStarted", { version: formatVersion(availableUpdate.latest) }));
     const result = await window.shell.startUpdate();
     if (!result.ok) {
       setUpdateBusy(false);
+      transitionUpdateState("failed");
       setUpdateProgress((current) => ({
         status: "failed",
         stage: current?.stage ?? { id: "unknown", label: t("update.status.failed") },
@@ -1008,6 +1060,12 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         logPath: current?.logPath,
       }));
     }
+  }
+
+  async function restartAfterUpdate() {
+    if (restartRequested.current || updateFlowStateRef.current !== "ready") return;
+    restartRequested.current = true;
+    await window.shell?.restartAfterUpdate?.();
   }
 
   async function refreshCacheInfo() {
@@ -1158,9 +1216,13 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
           </button>
           <button
             type="button"
-            className={`version-badge ${availableUpdate ? "available" : "current"}`}
+            className={`version-badge ${updateFlowState} ${updateFlowState === "idle" ? "current" : ""} ${updateFlowState === "idle" && availableUpdate ? "available" : ""}`}
             onClick={() => {
-              if (availableUpdate) {
+              if (updateFlowState === "ready") {
+                void restartAfterUpdate();
+                return;
+              }
+              if (updateFlowState === "failed" || updateFlowState === "updating") {
                 setUpdateModalOpen(true);
                 return;
               }
@@ -1609,19 +1671,22 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
               )}
             </div>
             <div className="modal-actions">
-              {updateProgress?.status === "succeeded" ? (
-                <button onClick={() => void window.shell?.restartAfterUpdate?.()}>
-                  {t("update.restart")}
-                </button>
-              ) : (
+              {updateFlowState === "failed" ? (
                 <>
-                  <button onClick={() => void handleUpdateConfirm()} disabled={updateBusy}>
+                  <button onClick={() => {
+                    autoUpdateAttempts.current.delete(availableUpdate.latest);
+                    transitionUpdateState("idle");
+                  }}>
                     {t(availableUpdate.isSourceInstall ? "update.install" : "update.openReleasePage")}
                   </button>
-                  <button data-modal-cancel onClick={dismissUpdateForSession} disabled={updateBusy}>
+                  <button data-modal-cancel onClick={dismissUpdateForSession}>
                     {t("update.later")}
                   </button>
                 </>
+              ) : updateFlowState === "updating" ? (
+                <button data-modal-cancel onClick={dismissUpdateForSession}>{t("common.close")}</button>
+              ) : (
+                <button data-modal-cancel onClick={dismissUpdateForSession}>{t("common.close")}</button>
               )}
             </div>
           </div>

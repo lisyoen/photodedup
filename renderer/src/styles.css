@@ -165,23 +165,39 @@ h2 {
   text-overflow: ellipsis;
 }
 
-.version-badge.current {
+.version-badge.idle,
+.version-badge.unavailable {
   cursor: pointer;
 }
 
-.version-badge.current:hover {
+.version-badge.idle:hover,
+.version-badge.unavailable:hover {
   background: rgba(143, 156, 173, 0.12);
 }
 
-.version-badge.available {
+.version-badge.updating {
   border-color: rgba(125, 211, 199, 0.5);
   background: #123f3a;
   color: #a7f3e3;
   cursor: pointer;
 }
 
-.version-badge.available:hover {
+.version-badge.updating:hover {
   background: #164943;
+}
+
+.version-badge.ready {
+  border-color: #7dd3c7;
+  background: #17635a;
+  color: #ecfffb;
+  cursor: pointer;
+}
+
+.version-badge.failed {
+  border-color: rgba(248, 113, 113, 0.7);
+  background: #4c1d24;
+  color: #fecaca;
+  cursor: pointer;
 }
 
 .icon-button {
