@@ -147,6 +147,9 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const updateModalRef = useRef<HTMLDivElement | null>(null);
   const cacheClearConfirmModalRef = useRef<HTMLDivElement | null>(null);
   const cacheClearConfirmButtonRef = useRef<HTMLButtonElement | null>(null);
+  const primaryKeyboardActionRef = useRef<() => void>(() => undefined);
+  const cancelKeyboardActionRef = useRef<() => void>(() => undefined);
+  const applyConfirmRef = useRef<() => Promise<void>>(async () => undefined);
   const updateDismissed = useRef(false);
   const notifiedUpdateVersions = useRef(new Set<string>());
   const settingsOpenScanFolders = useRef<string[]>(scanFolders);
@@ -385,23 +388,25 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         return;
       }
       if (isPrimaryShortcutKey(event)) {
-        if (isModalOpenOutsideTarget(event.target, [
+        const openModals = [
           cacheClearConfirmOpen ? cacheClearConfirmModalRef.current : null,
           applyOpen ? applyModalRef.current : null,
           settingsOpen ? settingsModalRef.current : null,
           updateModalOpen ? updateModalRef.current : null,
-        ])) {
+        ].filter((modal): modal is HTMLDivElement => modal !== null);
+        if (openModals.length > 0) {
+          if (isModalDefaultActionTarget(event.target, openModals)) return;
           event.preventDefault();
-          runPrimaryKeyboardAction();
+          primaryKeyboardActionRef.current();
           return;
         }
         if (isDefaultActionGuardedTarget(event.target)) return;
         event.preventDefault();
-        runPrimaryKeyboardAction();
+        primaryKeyboardActionRef.current();
         return;
       }
       if (event.key === "Escape") {
-        runCancelKeyboardAction();
+        cancelKeyboardActionRef.current();
       }
     }
 
@@ -925,7 +930,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       return;
     }
     if (applyOpen) {
-      if (!applyDisabled) void handleApplyConfirm();
+      if (!applyDisabled && !busy) void applyConfirmRef.current();
       return;
     }
     if (settingsOpen) {
@@ -958,6 +963,10 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
       closeApplyModal({ restoreFocus: true });
     }
   }
+
+  applyConfirmRef.current = handleApplyConfirm;
+  primaryKeyboardActionRef.current = runPrimaryKeyboardAction;
+  cancelKeyboardActionRef.current = runCancelKeyboardAction;
 
   function closeApplyModal({ restoreFocus }: { restoreFocus: boolean }) {
     setApplyOpen(false);
@@ -1378,7 +1387,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
               <p>{t("apply.note")}</p>
             </div>
             <div className="modal-actions">
-              <button onClick={() => closeApplyModal({ restoreFocus: true })}>{t("common.cancel")}</button>
+              <button data-modal-cancel onClick={() => closeApplyModal({ restoreFocus: true })}>{t("common.cancel")}</button>
               <button
                 ref={applyConfirmButtonRef}
                 className="danger"
@@ -1557,7 +1566,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
               <button onClick={() => void handleSaveSettings()} disabled={settingsSaving}>
                 {t("settings.save")}
               </button>
-              <button onClick={() => setSettingsOpen(false)}>{t("common.close")}</button>
+              <button data-modal-cancel onClick={() => setSettingsOpen(false)}>{t("common.close")}</button>
             </div>
           </div>
         </div>
@@ -1609,7 +1618,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
                   <button onClick={() => void handleUpdateConfirm()} disabled={updateBusy}>
                     {t(availableUpdate.isSourceInstall ? "update.install" : "update.openReleasePage")}
                   </button>
-                  <button onClick={dismissUpdateForSession} disabled={updateBusy}>
+                  <button data-modal-cancel onClick={dismissUpdateForSession} disabled={updateBusy}>
                     {t("update.later")}
                   </button>
                 </>
@@ -1634,7 +1643,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
               >
                 {t("common.confirm")}
               </button>
-              <button onClick={() => setCacheClearConfirmOpen(false)} disabled={cacheClearing}>
+              <button data-modal-cancel onClick={() => setCacheClearConfirmOpen(false)} disabled={cacheClearing}>
                 {t("common.cancel")}
               </button>
             </div>
@@ -1880,12 +1889,18 @@ function isDefaultActionGuardedTarget(target: EventTarget | null): boolean {
   );
 }
 
-function isModalOpenOutsideTarget(target: EventTarget | null, modals: Array<HTMLElement | null>): boolean {
-  const openModals = modals.filter((modal): modal is HTMLElement => modal !== null);
-  if (openModals.length === 0) return false;
-  if (!(target instanceof Node)) return true;
+function isModalDefaultActionTarget(target: EventTarget | null, openModals: HTMLElement[]): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (!openModals.some((modal) => modal.contains(target))) return false;
+  if (target.closest("[data-modal-cancel]")) return true;
 
-  return openModals.every((modal) => !modal.contains(target));
+  const tagName = target.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    target.isContentEditable
+  );
 }
 
 function PhotoImage({ dataSource, image }: { dataSource: DataSource; image: Image }) {

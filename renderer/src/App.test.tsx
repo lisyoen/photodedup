@@ -2318,6 +2318,145 @@ describe("App settings", () => {
     expect(document.activeElement).toBe(getButton("Apply all"));
   });
 
+  it.each([
+    { opener: "shortcut", confirmKey: " ", confirmCode: "Space" },
+    { opener: "button", confirmKey: " ", confirmCode: "Space" },
+    { opener: "shortcut", confirmKey: "Enter", confirmCode: "Enter" },
+  ] as const)(
+    "applies every classified group exactly once via $opener then $confirmCode",
+    async ({ opener, confirmKey, confirmCode }) => {
+      saveStoredScanFolders(["D:\\Apply Shortcut Confirm"]);
+      const first = applyGroupDetail();
+      const second = applyGroupDetail();
+      second.group.id = 102;
+      second.images = second.images.map((image) => ({ ...image, id: image.id + 10 }));
+      const details = [first, second];
+      vi.spyOn(MockDataSource.prototype, "listGroupDetails").mockResolvedValue({
+        items: details,
+        next_cursor: null,
+        total_estimate: details.length,
+      });
+      vi.spyOn(MockDataSource.prototype, "getGroup").mockImplementation(async (groupId) =>
+        details.find(({ group }) => group.id === groupId) ?? first
+      );
+      const applyMarkedDeletes = vi.spyOn(MockDataSource.prototype, "applyMarkedDeletes").mockResolvedValue({
+        job_id: "active-element-cleanup",
+        status: "queued",
+        targets: 2,
+      });
+      vi.spyOn(MockDataSource.prototype, "getCleanup").mockResolvedValue({
+        id: "active-element-cleanup",
+        kind: "cleanup",
+        status: "done",
+        phase: "done",
+        done: 2,
+        total: 2,
+        summary: { deleted: 2, failed: 0 },
+      });
+
+      root.render(
+        <I18nProvider>
+          <App />
+        </I18nProvider>
+      );
+      await waitUntil(() => document.body.textContent?.includes("#101") === true);
+
+      if (opener === "shortcut") {
+        dispatchShortcut("KeyS", { key: "s", ctrlKey: true });
+      } else {
+        getRequiredElement(".apply-button").click();
+      }
+      await waitUntil(() => document.querySelector("[aria-labelledby='apply-title']") !== null);
+      expect(document.activeElement).toBe(getButton("Apply all"));
+
+      const { keydown, keyup } = dispatchActiveElementKeyPair(confirmKey, { code: confirmCode });
+      await waitUntil(() => applyMarkedDeletes.mock.calls.length === 1);
+
+      expect(keydown.target).toBe(getButton("Apply all"));
+      expect(keydown.defaultPrevented).toBe(true);
+      expect(keyup.target).toBe(keydown.target);
+      expect(applyMarkedDeletes).toHaveBeenCalledTimes(1);
+      expect(applyMarkedDeletes).toHaveBeenCalledWith("trash", [101, 102]);
+    }
+  );
+
+  it("keeps Space on the apply cancel button as its native cancel action", async () => {
+    saveStoredScanFolders(["D:\\Apply Shortcut Cancel"]);
+    const detail = applyGroupDetail();
+    vi.spyOn(MockDataSource.prototype, "listGroupDetails").mockResolvedValue({
+      items: [detail],
+      next_cursor: null,
+      total_estimate: 1,
+    });
+    vi.spyOn(MockDataSource.prototype, "getGroup").mockResolvedValue(detail);
+    const applyMarkedDeletes = vi.spyOn(MockDataSource.prototype, "applyMarkedDeletes");
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await waitUntil(() => document.body.textContent?.includes("#101") === true);
+    dispatchShortcut("KeyS", { key: "s", ctrlKey: true });
+    await waitUntil(() => document.querySelector("[aria-labelledby='apply-title']") !== null);
+
+    const cancelButton = getButton("Cancel");
+    cancelButton.focus();
+    const { keydown } = dispatchActiveElementKeyPair(" ", { code: "Space" });
+    expect(keydown.defaultPrevented).toBe(false);
+    expect(applyMarkedDeletes).not.toHaveBeenCalled();
+
+    await waitUntil(() => document.querySelector("[aria-labelledby='apply-title']") === null);
+    expect(applyMarkedDeletes).not.toHaveBeenCalled();
+  });
+
+  it("uses the latest apply mode without adding a second native confirmation", async () => {
+    saveStoredScanFolders(["D:\\Apply Latest Mode"]);
+    const detail = applyGroupDetail();
+    vi.spyOn(MockDataSource.prototype, "listGroupDetails").mockResolvedValue({
+      items: [detail],
+      next_cursor: null,
+      total_estimate: 1,
+    });
+    vi.spyOn(MockDataSource.prototype, "getGroup").mockResolvedValue(detail);
+    const applyMarkedDeletes = vi.spyOn(MockDataSource.prototype, "applyMarkedDeletes").mockResolvedValue({
+      job_id: "latest-mode-cleanup",
+      status: "queued",
+      targets: 1,
+    });
+    vi.spyOn(MockDataSource.prototype, "getCleanup").mockResolvedValue({
+      id: "latest-mode-cleanup",
+      kind: "cleanup",
+      status: "done",
+      phase: "done",
+      done: 1,
+      total: 1,
+      summary: { deleted: 1, failed: 0 },
+    });
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+    await waitUntil(() => document.body.textContent?.includes("#101") === true);
+    dispatchShortcut("KeyS", { key: "s", ctrlKey: true });
+    await waitUntil(() => document.querySelector("[aria-labelledby='apply-title']") !== null);
+
+    const applyModeInputs = document.querySelectorAll<HTMLInputElement>(
+      "[aria-labelledby='apply-title'] input[type='radio']"
+    );
+    expect(applyModeInputs).toHaveLength(2);
+    applyModeInputs[1].click();
+    getButton("Apply all").focus();
+    const { keydown } = dispatchActiveElementKeyPair(" ", { code: "Space" });
+    await waitUntil(() => applyMarkedDeletes.mock.calls.length === 1);
+
+    expect(keydown.defaultPrevented).toBe(true);
+    expect(applyMarkedDeletes).toHaveBeenCalledTimes(1);
+    expect(applyMarkedDeletes).toHaveBeenCalledWith("permanent", [101]);
+  });
+
   it("does not open apply-all for Ctrl+S while another modal is open", async () => {
     saveStoredScanFolders(["D:\\Apply Shortcut Modal"]);
     const detail = applyGroupDetail();
@@ -2731,6 +2870,36 @@ function dispatchKey(target: EventTarget, key: string, init: KeyboardEventInit =
   const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
   target.dispatchEvent(event);
   return event;
+}
+
+function dispatchActiveElementKeyPair(key: string, init: KeyboardEventInit = {}) {
+  const target = document.activeElement;
+  if (!(target instanceof HTMLElement)) {
+    throw new Error("No active element available for keyboard dispatch");
+  }
+  const keydown = new KeyboardEvent("keydown", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  const keyup = new KeyboardEvent("keyup", {
+    key,
+    bubbles: true,
+    cancelable: true,
+    ...init,
+  });
+  target.dispatchEvent(keydown);
+  target.dispatchEvent(keyup);
+  if (
+    target instanceof HTMLButtonElement &&
+    !keydown.defaultPrevented &&
+    !keyup.defaultPrevented &&
+    (key === " " || key === "Enter")
+  ) {
+    target.click();
+  }
+  return { target, keydown, keyup };
 }
 
 function ctrlClick(target: EventTarget) {
