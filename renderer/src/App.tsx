@@ -684,6 +684,8 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
         const activeRoots = scanFolders;
         const snapshot = await dataSource.loadGroupSnapshot(activeRoots);
         if (!cancelled && snapshot) {
+          // The engine overlays persisted snapshots with current manifest/completion state.
+          // Keep this client filter only as a second line of defense; stored completed=false is stale by design.
           const snapshotItems = filterAndSortGroups(snapshot.items, groupStatusFilter, groupSortFilter);
           setGroups(snapshotItems);
           setSelectedGroupId(snapshotItems[0]?.group.id ?? null);

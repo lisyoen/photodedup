@@ -121,16 +121,14 @@ describe("App settings", () => {
     expect(document.querySelector(".preview-banner")).toBeNull();
   });
 
-  it("does not render a classified group from the startup snapshot", async () => {
+  it("accepts a startup snapshot where the server already excluded completed groups", async () => {
     window.sidecar = { port: 49152, token: "secret-token" };
     saveStoredScanFolders(["D:\\Snapshot Photos"]);
-    const classified = applyGroupDetail();
-    classified.group.completed = true;
     vi.spyOn(HttpDataSource.prototype, "loadGroupSnapshot").mockResolvedValue({
       version: 1,
       generated_at: "2026-07-25T00:00:00Z",
       roots: ["D:\\Snapshot Photos"],
-      items: [classified],
+      items: [],
     });
     const fresh = deferred<Awaited<ReturnType<HttpDataSource["listGroupDetails"]>>>();
     vi.spyOn(HttpDataSource.prototype, "listGroupDetails").mockReturnValue(fresh.promise);
@@ -138,6 +136,7 @@ describe("App settings", () => {
     root.render(<I18nProvider><App /></I18nProvider>);
 
     await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === true);
+    // On-disk snapshots contain completed=false; the engine overlay removes completed groups before this response.
     expect(document.body.textContent).not.toContain("#101");
     fresh.resolve({ items: [], next_cursor: null, total_estimate: 0 });
     await waitUntil(() => document.body.textContent?.includes("Loading current groups...") === false);
@@ -1547,8 +1546,10 @@ describe("App settings", () => {
     };
     root.render(<I18nProvider><App /></I18nProvider>);
     await waitUntil(() => progressCallbacks.length === 1);
-    progressCallbacks[0]({
-      status: "failed", stage: { id: "build", label: "Build" }, error: "failed", logPath: "/tmp/update.log",
+    flushSync(() => {
+      progressCallbacks[0]({
+        status: "failed", stage: { id: "build", label: "Build" }, error: "failed", logPath: "/tmp/update.log",
+      });
     });
     await waitUntil(() => getRequiredElement(".version-badge").textContent?.includes("Update failed") === true);
     getRequiredElement(".version-badge").click();

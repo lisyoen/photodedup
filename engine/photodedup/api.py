@@ -253,6 +253,13 @@ def create_app(data_dir: str | Path, token: str) -> FastAPI:
         if not _snapshot_roots_match(payload, requested_roots):
             _discard_snapshot(snapshot_path)
             raise _http_error(404, "not_found", "group snapshot roots mismatch")
+        manifest = open_manifest()
+        try:
+            payload = _overlay_group_snapshot(payload, manifest, cache_dir)
+        except Exception as exc:
+            raise _http_error(404, "not_found", "group snapshot overlay unavailable") from exc
+        finally:
+            manifest.close()
         print(f"group snapshot loaded path={snapshot_path}", file=sys.stderr, flush=True)
         return payload
 
@@ -1005,6 +1012,63 @@ def _write_group_snapshot(cache_dir: Path, manifest: Manifest, roots: list[str])
     tmp_path.replace(snapshot_path)
     print(f"group snapshot saved path={snapshot_path}", file=sys.stderr, flush=True)
     return snapshot_path
+
+
+def _overlay_group_snapshot(
+    payload: dict[str, object],
+    manifest: Manifest,
+    cache_dir: Path,
+) -> dict[str, object]:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        raise ValueError("group snapshot items invalid")
+
+    completed_group_ids = _load_group_completions(cache_dir)
+    snapshot_group_ids: list[int] = []
+    snapshot_image_ids: list[int] = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("group"), dict) or not isinstance(item.get("images"), list):
+            raise ValueError("group snapshot item invalid")
+        snapshot_group_ids.append(int(item["group"]["id"]))
+        for image in item["images"]:
+            if not isinstance(image, dict):
+                raise ValueError("group snapshot image invalid")
+            snapshot_image_ids.append(int(image["id"]))
+
+    active_group_ids: set[int] = set()
+    if snapshot_group_ids:
+        placeholders = ",".join("?" for _ in snapshot_group_ids)
+        rows = manifest.conn.execute(
+            f"SELECT group_id FROM groups WHERE group_id IN ({placeholders})",
+            tuple(snapshot_group_ids),
+        ).fetchall()
+        active_group_ids = {int(row["group_id"]) for row in rows}
+
+    current_marks: dict[int, str] = {}
+    if snapshot_image_ids:
+        placeholders = ",".join("?" for _ in snapshot_image_ids)
+        rows = manifest.conn.execute(
+            f"SELECT id, mark FROM images WHERE id IN ({placeholders})",
+            tuple(snapshot_image_ids),
+        ).fetchall()
+        current_marks = {int(row["id"]): row["mark"] or "none" for row in rows}
+
+    overlaid_items = []
+    for item in items:
+        group = dict(item["group"])
+        group_id = int(group["id"])
+        group["completed"] = group_id in completed_group_ids
+        if group_id not in active_group_ids or group["completed"]:
+            continue
+        images = []
+        for image in item["images"]:
+            image_payload = dict(image)
+            image_id = int(image_payload["id"])
+            if image_id in current_marks:
+                image_payload["mark"] = current_marks[image_id]
+            images.append(image_payload)
+        overlaid_items.append({**item, "group": group, "images": images})
+    return {**payload, "items": overlaid_items}
 
 
 def _group_detail(manifest: Manifest, group_id: int, roots: list[str] | None = None) -> dict[str, object]:

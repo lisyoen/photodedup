@@ -280,6 +280,79 @@ def test_scan_writes_group_snapshot_and_restart_loads_it(tmp_path: Path) -> None
     assert payload["items"][0]["group"]["member_count"] >= 2
 
 
+def test_group_snapshot_excludes_group_completed_after_snapshot_write(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    _seed_sort_group(data_dir, keep_image_id=1)
+    cache_dir = data_dir / "cache"
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        snapshot_path = api_module._write_group_snapshot(cache_dir, manifest, [])
+    finally:
+        manifest.close()
+    stored = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    assert stored["items"][0]["group"]["completed"] is False
+
+    api_module._mark_group_completed(cache_dir, 1)
+    response = _client(data_dir).get("/groups/snapshot")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_group_snapshot_overlays_current_image_marks(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    _seed_sort_group(data_dir, keep_image_id=1)
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        api_module._write_group_snapshot(data_dir / "cache", manifest, [])
+        manifest.conn.execute("UPDATE images SET mark = 'keep' WHERE id = 1")
+        manifest.conn.commit()
+    finally:
+        manifest.close()
+
+    response = _client(data_dir).get("/groups/snapshot")
+
+    assert response.status_code == 200
+    images = response.json()["items"][0]["images"]
+    assert next(image for image in images if image["id"] == 1)["mark"] == "keep"
+
+
+def test_group_snapshot_excludes_group_missing_from_manifest(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    _seed_sort_group(data_dir, keep_image_id=1)
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        api_module._write_group_snapshot(data_dir / "cache", manifest, [])
+        manifest.conn.execute("DELETE FROM groups WHERE group_id = 1")
+        manifest.conn.commit()
+    finally:
+        manifest.close()
+
+    response = _client(data_dir).get("/groups/snapshot")
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_group_snapshot_overlay_failure_returns_404(tmp_path: Path, monkeypatch) -> None:
+    data_dir = tmp_path / "data"
+    _seed_sort_group(data_dir, keep_image_id=1)
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        api_module._write_group_snapshot(data_dir / "cache", manifest, [])
+    finally:
+        manifest.close()
+
+    def fail_completion_load(_cache_dir: Path) -> set[int]:
+        raise RuntimeError("completion overlay unavailable")
+
+    monkeypatch.setattr(api_module, "_load_group_completions", fail_completion_load)
+    response = _client(data_dir).get("/groups/snapshot")
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["error"]["code"] == "not_found"
+
+
 def test_cache_info_and_clear_only_remove_group_snapshots(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     cache_dir = data_dir / "cache"
