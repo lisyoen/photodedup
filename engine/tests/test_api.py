@@ -1341,17 +1341,22 @@ def test_apply_marks_already_missing_delete_target_resolved(
     assert started.status_code == 202
     cleanup = _wait_cleanup(client, started.json()["job_id"])
     assert cleanup["status"] == "done"
-    assert cleanup["summary"] == {"deleted": 1, "failed": 0, "already_missing": 1}
+    expected = (
+        {"deleted": 0, "failed": 1, "already_missing": 0}
+        if mode == "trash"
+        else {"deleted": 1, "failed": 0, "already_missing": 1}
+    )
+    assert cleanup["summary"] == expected
 
     manifest = Manifest(data_dir / "manifest.db")
     try:
         deleted = manifest.conn.execute(
             "SELECT is_quarantined, resolved_at FROM images WHERE id = 2"
         ).fetchone()
-        assert deleted["is_quarantined"] == 1
-        assert deleted["resolved_at"] is not None
+        assert deleted["is_quarantined"] == (0 if mode == "trash" else 1)
+        assert (deleted["resolved_at"] is not None) is (mode != "trash")
         group = manifest.conn.execute("SELECT resolved_at FROM groups WHERE group_id = 1").fetchone()
-        assert group["resolved_at"] is not None
+        assert (group["resolved_at"] is not None) is (mode != "trash")
     finally:
         manifest.close()
 
@@ -1864,11 +1869,11 @@ def _seed_apply_group(tmp_path: Path) -> tuple[Path, Path]:
         manifest.conn.executemany(
             """
             INSERT INTO images(id, path, size_bytes, mtime, width, height, format, quality_score, group_id, mark, is_keep)
-            VALUES (?, ?, 100, 1.0, 16, 16, 'jpg', 80, 1, ?, ?)
+            VALUES (?, ?, ?, 1.0, 16, 16, 'jpg', 80, 1, ?, ?)
             """,
             [
-                (1, str(keep_file), "keep", 1),
-                (2, str(delete_file), "delete", 0),
+                (1, str(keep_file), keep_file.stat().st_size, "keep", 1),
+                (2, str(delete_file), delete_file.stat().st_size, "delete", 0),
             ],
         )
         manifest.conn.commit()
@@ -1940,13 +1945,13 @@ def _seed_two_apply_groups(tmp_path: Path) -> tuple[Path, dict[int, Path]]:
         manifest.conn.executemany(
             """
             INSERT INTO images(id, path, size_bytes, mtime, width, height, format, quality_score, group_id, mark, is_keep)
-            VALUES (?, ?, 100, 1.0, 16, 16, 'jpg', 80, ?, ?, ?)
+            VALUES (?, ?, ?, 1.0, 16, 16, 'jpg', 80, ?, ?, ?)
             """,
             [
-                (1, str(files[1]), 1, "keep", 1),
-                (2, str(files[2]), 1, "delete", 0),
-                (3, str(files[3]), 2, "keep", 1),
-                (4, str(files[4]), 2, "delete", 0),
+                (1, str(files[1]), files[1].stat().st_size, 1, "keep", 1),
+                (2, str(files[2]), files[2].stat().st_size, 1, "delete", 0),
+                (3, str(files[3]), files[3].stat().st_size, 2, "keep", 1),
+                (4, str(files[4]), files[4].stat().st_size, 2, "delete", 0),
             ],
         )
         manifest.conn.commit()

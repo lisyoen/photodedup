@@ -46,6 +46,7 @@ class Manifest:
         self.conn = sqlite3.connect(self.db_path, timeout=30.0)
         self.conn.execute("PRAGMA busy_timeout = 5000")
         self.conn.row_factory = sqlite3.Row
+        self.reconciliation_counts = {"quarantined": 0, "failed": 0, "lost": 0}
         if run_migrations:
             self.init_schema()
 
@@ -133,6 +134,44 @@ class Manifest:
         self.backfill_keep_all_is_keep()
         self.mark_residual_zero_byte_groups()
         self.conn.commit()
+        self.reconciliation_counts = self.reconcile_pending_quarantine()
+
+    def reconcile_pending_quarantine(self) -> dict[str, int]:
+        counts = {"quarantined": 0, "failed": 0, "lost": 0}
+        rows = self.conn.execute(
+            "SELECT id, image_id, original_path, quarantine_path FROM quarantine WHERE status = 'pending_move' ORDER BY id"
+        ).fetchall()
+        for row in rows:
+            quarantine_path = Path(row["quarantine_path"])
+            original_path = Path(row["original_path"])
+            if quarantine_path.exists():
+                status = "quarantined"
+                moved_at = utc_now()
+                self.conn.execute(
+                    "UPDATE quarantine SET status = ?, moved_at = ? WHERE id = ?",
+                    (status, moved_at, int(row["id"])),
+                )
+                self.conn.execute(
+                    "UPDATE images SET is_quarantined = 1, resolved_at = COALESCE(resolved_at, ?) WHERE id = ?",
+                    (moved_at, int(row["image_id"])),
+                )
+            elif original_path.exists():
+                status = "failed"
+                self.conn.execute("UPDATE quarantine SET status = ? WHERE id = ?", (status, int(row["id"])))
+            else:
+                status = "lost"
+                self.conn.execute("UPDATE quarantine SET status = ? WHERE id = ?", (status, int(row["id"])))
+                LOGGER.error(
+                    "pending quarantine lost: id=%s original_path=%s quarantine_path=%s",
+                    int(row["id"]), original_path, quarantine_path,
+                )
+            self.conn.commit()
+            counts[status] += 1
+        LOGGER.warning(
+            "pending quarantine reconciliation: quarantined=%s failed=%s lost=%s",
+            counts["quarantined"], counts["failed"], counts["lost"],
+        )
+        return counts
 
     def backfill_quarantined_resolved_at(self) -> int:
         cursor = self.conn.execute(

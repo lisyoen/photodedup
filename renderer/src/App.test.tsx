@@ -1738,6 +1738,35 @@ describe("App settings", () => {
     expect(document.body.textContent).not.toContain("Settings saved.");
   });
 
+  it("dismisses an expired info toast when the Electron renderer resumes after its timer was suspended", async () => {
+    vi.spyOn(MockDataSource.prototype, "putSettings").mockImplementation(async (settings) => settings);
+
+    root.render(
+      <I18nProvider>
+        <App />
+      </I18nProvider>
+    );
+
+    await settle();
+    getButton("Open settings").click();
+    await waitUntil(() => document.body.textContent?.includes("Similarity threshold") === true);
+
+    vi.useFakeTimers();
+    const shownAt = new Date("2026-07-26T00:00:00.000Z");
+    vi.setSystemTime(shownAt);
+    getButton("Save settings").click();
+    await waitUntilFake(() => document.body.textContent?.includes("Settings saved.") === true);
+
+    // Electron/Windows can suspend the renderer without advancing its timer queue.
+    // Resume it after the wall-clock deadline and require immediate reconciliation.
+    vi.setSystemTime(new Date(shownAt.getTime() + 60_001));
+    window.dispatchEvent(new Event("focus"));
+    await flushPromises();
+    flushSync(() => undefined);
+
+    expect(document.body.textContent).not.toContain("Settings saved.");
+  });
+
   it("resets the toast timer when a new toast appears", async () => {
     vi.spyOn(MockDataSource.prototype, "putSettings")
       .mockImplementationOnce(async (settings) => settings)

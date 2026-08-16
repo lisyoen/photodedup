@@ -141,6 +141,7 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   const [retryUpdateVersion, setRetryUpdateVersion] = useState<string | null>(null);
   const initialLoadDone = useRef(false);
   const toastTimer = useRef<number | undefined>();
+  const toastDeadline = useRef<number | undefined>();
   const shortcutPressTimer = useRef<number | undefined>();
   const groupCardRefs = useRef(new Map<number, HTMLButtonElement>());
   const photoGridRef = useRef<HTMLDivElement | null>(null);
@@ -235,8 +236,24 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   useEffect(() => () => dataSource.disposeThumbs(), [dataSource]);
 
   useEffect(() => {
+    function reconcileExpiredToast() {
+      const deadline = toastDeadline.current;
+      if (deadline !== undefined) expireToast(deadline);
+    }
+
+    function reconcileVisibleToast() {
+      if (document.visibilityState === "visible") reconcileExpiredToast();
+    }
+
+    window.addEventListener("focus", reconcileExpiredToast);
+    window.addEventListener("pageshow", reconcileExpiredToast);
+    document.addEventListener("visibilitychange", reconcileVisibleToast);
+
     return () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
+      window.removeEventListener("focus", reconcileExpiredToast);
+      window.removeEventListener("pageshow", reconcileExpiredToast);
+      document.removeEventListener("visibilitychange", reconcileVisibleToast);
+      if (toastTimer.current !== undefined) window.clearTimeout(toastTimer.current);
       if (shortcutPressTimer.current) window.clearTimeout(shortcutPressTimer.current);
     };
   }, []);
@@ -272,12 +289,30 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   ]);
 
   function showToast(message: string, options: { error?: boolean } = {}) {
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    if (toastTimer.current !== undefined) window.clearTimeout(toastTimer.current);
+    const deadline = Date.now()
+      + (options.error ? ERROR_TOAST_TIMEOUT_MS : INFO_TOAST_TIMEOUT_MS);
+    toastDeadline.current = deadline;
     setToast(message);
+    scheduleToastExpiry(deadline);
+  }
+
+  function scheduleToastExpiry(deadline: number) {
     toastTimer.current = window.setTimeout(
-      () => setToast(null),
-      options.error ? ERROR_TOAST_TIMEOUT_MS : INFO_TOAST_TIMEOUT_MS
+      () => expireToast(deadline),
+      Math.max(0, deadline - Date.now())
     );
+  }
+
+  function expireToast(deadline: number) {
+    if (toastDeadline.current !== deadline) return;
+    if (Date.now() < deadline) {
+      scheduleToastExpiry(deadline);
+      return;
+    }
+    toastTimer.current = undefined;
+    toastDeadline.current = undefined;
+    setToast(null);
   }
 
   function transitionUpdateState(state: UpdateFlowState) {
@@ -286,10 +321,11 @@ function AppContent({ dataSource }: { dataSource: DataSource }) {
   }
 
   function dismissToast() {
-    if (toastTimer.current) {
+    if (toastTimer.current !== undefined) {
       window.clearTimeout(toastTimer.current);
       toastTimer.current = undefined;
     }
+    toastDeadline.current = undefined;
     setToast(null);
   }
 

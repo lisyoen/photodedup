@@ -14,7 +14,12 @@ from .manifest import Manifest, utc_now
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_QUARANTINE_ROOT = Path(r"C:\photo-dedup-trash")
+DEFAULT_QUARANTINE_ROOT = Path("trash")
+QUARANTINE_MARKER_NAME = "README-DO-NOT-DELETE.txt"
+QUARANTINE_MARKER_CONTENT = (
+    "이 폴더는 사진 복구용 격리 보관소입니다. 삭제하면 사진을 복구할 수 없습니다.\n"
+    "This folder is a photo recovery quarantine. Deleting it makes recovery impossible.\n"
+)
 
 
 @dataclass(frozen=True)
@@ -51,6 +56,14 @@ def ensure_quarantine_destination_safe(path: Path, protected_root: Path | None =
 def dated_quarantine_dir(root: Path = DEFAULT_QUARANTINE_ROOT, today: datetime | None = None) -> Path:
     stamp = (today or datetime.now()).strftime("%Y%m%d")
     return root / stamp
+
+
+def ensure_quarantine_root(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    marker = root / QUARANTINE_MARKER_NAME
+    if not marker.exists():
+        marker.write_text(QUARANTINE_MARKER_CONTENT, encoding="utf-8")
+    return root
 
 
 def _unique_destination(dest_dir: Path, source: Path, reserved: set[str]) -> Path:
@@ -272,20 +285,36 @@ def quarantine_plan(
                 counts["skipped"] += 1
                 continue
             if not item.original_path.exists():
-                _record_quarantine(manifest.conn, item, status="failed", moved_at=utc_now())
+                quarantine_id = _record_quarantine(manifest.conn, item, status="pending_move")
+                _update_quarantine_status(manifest.conn, quarantine_id, status="failed")
                 counts["failed"] += 1
                 LOGGER.warning("Missing source, skipped: %s", item.original_path)
                 continue
             actual_size = item.original_path.stat().st_size
             if actual_size != item.size:
-                _record_quarantine(manifest.conn, item, status="failed", moved_at=utc_now())
+                quarantine_id = _record_quarantine(manifest.conn, item, status="pending_move")
+                _update_quarantine_status(manifest.conn, quarantine_id, status="failed")
                 counts["failed"] += 1
                 LOGGER.warning("Size changed, skipped: %s", item.original_path)
                 continue
-            item.quarantine_path.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(item.original_path), str(item.quarantine_path))
-            _record_quarantine(manifest.conn, item, status="quarantined", moved_at=utc_now())
-            manifest.conn.execute("UPDATE images SET is_quarantined = 1 WHERE id = ?", (item.image_id,))
+            quarantine_id = _record_quarantine(manifest.conn, item, status="pending_move")
+            try:
+                item.quarantine_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(item.original_path), str(item.quarantine_path))
+            except Exception:
+                _update_quarantine_status(manifest.conn, quarantine_id, status="failed")
+                counts["failed"] += 1
+                LOGGER.exception("Quarantine move failed, source preserved when possible: %s", item.original_path)
+                continue
+            moved_at = utc_now()
+            manifest.conn.execute(
+                "UPDATE quarantine SET status = 'quarantined', moved_at = ? WHERE id = ?",
+                (moved_at, quarantine_id),
+            )
+            manifest.conn.execute(
+                "UPDATE images SET is_quarantined = 1, resolved_at = ? WHERE id = ?",
+                (moved_at, item.image_id),
+            )
             manifest.conn.commit()
             counts["quarantined"] += 1
     finally:
@@ -293,8 +322,8 @@ def quarantine_plan(
     return counts
 
 
-def _record_quarantine(conn: sqlite3.Connection, item: CleanupPlanItem, *, status: str, moved_at: str) -> None:
-    conn.execute(
+def _record_quarantine(conn: sqlite3.Connection, item: CleanupPlanItem, *, status: str) -> int:
+    cursor = conn.execute(
         """
         INSERT INTO quarantine(image_id, original_path, quarantine_path, size, phash, group_id, moved_at, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -306,10 +335,16 @@ def _record_quarantine(conn: sqlite3.Connection, item: CleanupPlanItem, *, statu
             item.size,
             item.phash,
             item.group_id,
-            moved_at,
+            None,
             status,
         ),
     )
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def _update_quarantine_status(conn: sqlite3.Connection, quarantine_id: int, *, status: str) -> None:
+    conn.execute("UPDATE quarantine SET status = ? WHERE id = ?", (status, quarantine_id))
     conn.commit()
 
 

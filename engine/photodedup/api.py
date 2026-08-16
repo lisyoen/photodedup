@@ -16,7 +16,14 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse
 from PIL import UnidentifiedImageError
 
-from .cleanup import dated_quarantine_dir, restore_quarantine as restore_quarantine_files
+from .cleanup import (
+    DEFAULT_QUARANTINE_ROOT,
+    build_images_quarantine_plan,
+    dated_quarantine_dir,
+    ensure_quarantine_root,
+    quarantine_plan,
+    restore_quarantine as restore_quarantine_files,
+)
 from .grouping import GroupableImage, group_images
 from .hashing import fingerprint, similarity_percent
 from .manifest import Manifest, utc_now
@@ -116,8 +123,15 @@ def create_app(data_dir: str | Path, token: str) -> FastAPI:
     jobs: dict[str, Job] = {}
     jobs_lock = threading.Lock()
 
-    Manifest(db_path, run_migrations=True).close()
-    print(f"manifest migrations complete db_path={db_path}", file=sys.stderr, flush=True)
+    startup_manifest = Manifest(db_path, run_migrations=True)
+    reconciliation = startup_manifest.reconciliation_counts
+    startup_manifest.close()
+    quarantine_root = ensure_quarantine_root(data_path / DEFAULT_QUARANTINE_ROOT)
+    print(
+        f"manifest migrations complete db_path={db_path} pending_quarantine_reconciliation={reconciliation}",
+        file=sys.stderr,
+        flush=True,
+    )
 
     app = FastAPI(title="Photo Dedup Desktop Sidecar API", version="0.1.0")
 
@@ -368,7 +382,7 @@ def create_app(data_dir: str | Path, token: str) -> FastAPI:
         settings = _load_settings(settings_path)
         threading.Thread(
             target=_run_cleanup_job,
-            args=(job, db_path, cache_dir, list(settings["scan_folders"]), mode, group_ids),
+            args=(job, db_path, cache_dir, quarantine_root, list(settings["scan_folders"]), mode, group_ids),
             daemon=True,
         ).start()
         targets = _count_delete_marks(db_path, group_ids)
@@ -740,6 +754,7 @@ def _run_cleanup_job(
     job: Job,
     db_path: Path,
     cache_dir: Path,
+    quarantine_root: Path,
     roots: list[str],
     mode: str,
     group_ids: list[int] | None = None,
@@ -760,28 +775,31 @@ def _run_cleanup_job(
         ).fetchall()
         total = len(rows)
         job.set_progress(0, total, "quarantine" if mode == "trash" else "db_update")
-        quarantine_dir = dated_quarantine_dir(db_path.parent / "quarantine")
+        quarantine_dir = dated_quarantine_dir(quarantine_root)
         deleted = 0
         failed = 0
         already_missing = 0
         changed_group_ids: set[int] = set()
-        for index, row in enumerate(rows, start=1):
+        if mode == "trash":
+            plan = build_images_quarantine_plan(db_path, [int(row["id"]) for row in rows], quarantine_dir)
+            result = quarantine_plan(db_path, plan)
+            deleted = result["quarantined"]
+            failed = result["failed"]
+            successful_ids = {item.image_id for item in plan if item.quarantine_path.exists()}
+            changed_group_ids.update(
+                int(row["group_id"])
+                for row in rows
+                if row["group_id"] is not None and int(row["id"]) in successful_ids
+            )
+            job.set_progress(total, total, "db_update")
+        for index, row in enumerate(rows if mode != "trash" else [], start=1):
             source = Path(row["path"])
             try:
                 if not source.exists():
                     already_missing += 1
                 else:
                     try:
-                        if mode == "trash":
-                            quarantine_dir.mkdir(parents=True, exist_ok=True)
-                            target = quarantine_dir / source.name
-                            suffix = 1
-                            while target.exists():
-                                target = quarantine_dir / f"{source.stem}_{suffix}{source.suffix}"
-                                suffix += 1
-                            shutil.move(str(source), str(target))
-                        else:
-                            source.unlink()
+                        source.unlink()
                     except FileNotFoundError:
                         already_missing += 1
                 manifest.conn.execute(
