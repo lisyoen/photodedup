@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 import sqlite3
 import threading
 import time
@@ -768,6 +769,88 @@ def test_scan_reuses_cache_and_skips_grouping_when_files_unchanged(tmp_path: Pat
     assert second.summary["grouping_skipped"] is True
     assert "grouping skipped (no new files)" in str(second.summary["log"])
     assert len(group_calls) == 1
+
+
+def test_scan_regenerates_thumbnail_when_image_is_reanalyzed(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    image_path = images / "changed.jpg"
+    Image.new("RGB", (128, 128), "#d7191c").save(image_path, quality=95)
+    data_dir = tmp_path / "data"
+    client = _client(data_dir)
+
+    first_status = _wait_scan(client, client.post("/scan", json={"roots": [str(images)]}).json()["scan_id"])
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        row = manifest.conn.execute("SELECT thumb_path FROM images WHERE path = ?", (str(image_path),)).fetchone()
+    finally:
+        manifest.close()
+    assert first_status["summary"]["analyzed_new"] == 1
+    thumb_path = Path(row["thumb_path"])
+    old_thumb_bytes = thumb_path.read_bytes()
+    old_thumb_mtime_ns = thumb_path.stat().st_mtime_ns
+
+    Image.new("RGB", (128, 128), "#2c7bb6").save(image_path, quality=95)
+    newer_mtime_ns = max(image_path.stat().st_mtime_ns, old_thumb_mtime_ns + 1_000_000_000)
+    image_path.touch()
+    image_path_stat = image_path.stat()
+    os.utime(image_path, ns=(image_path_stat.st_atime_ns, newer_mtime_ns))
+
+    second_status = _wait_scan(client, client.post("/scan", json={"roots": [str(images)]}).json()["scan_id"])
+
+    assert second_status["summary"]["analyzed_new"] == 1
+    assert thumb_path.read_bytes() != old_thumb_bytes
+    assert thumb_path.stat().st_mtime_ns > old_thumb_mtime_ns
+
+
+def test_scan_does_not_regenerate_thumbnail_when_image_is_unchanged(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    image_path = images / "unchanged.jpg"
+    Image.new("RGB", (128, 128), "#4daf4a").save(image_path, quality=95)
+    data_dir = tmp_path / "data"
+    client = _client(data_dir)
+
+    first_status = _wait_scan(client, client.post("/scan", json={"roots": [str(images)]}).json()["scan_id"])
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        row = manifest.conn.execute("SELECT thumb_path FROM images WHERE path = ?", (str(image_path),)).fetchone()
+    finally:
+        manifest.close()
+    assert first_status["summary"]["analyzed_new"] == 1
+    thumb_path = Path(row["thumb_path"])
+    thumb_mtime_ns = thumb_path.stat().st_mtime_ns
+
+    second_status = _wait_scan(client, client.post("/scan", json={"roots": [str(images)]}).json()["scan_id"])
+
+    assert second_status["summary"]["analyzed_new"] == 0
+    assert thumb_path.stat().st_mtime_ns == thumb_mtime_ns
+
+
+def test_scan_regenerates_thumbnail_when_thumbnail_is_older_than_source(tmp_path: Path) -> None:
+    images = tmp_path / "images"
+    images.mkdir()
+    image_path = images / "stale-thumb.jpg"
+    Image.new("RGB", (128, 128), "#984ea3").save(image_path, quality=95)
+    data_dir = tmp_path / "data"
+    client = _client(data_dir)
+
+    first_status = _wait_scan(client, client.post("/scan", json={"roots": [str(images)]}).json()["scan_id"])
+    manifest = Manifest(data_dir / "manifest.db", run_migrations=False)
+    try:
+        row = manifest.conn.execute("SELECT thumb_path FROM images WHERE path = ?", (str(image_path),)).fetchone()
+    finally:
+        manifest.close()
+    assert first_status["summary"]["analyzed_new"] == 1
+    thumb_path = Path(row["thumb_path"])
+    source_mtime_ns = image_path.stat().st_mtime_ns
+    stale_mtime_ns = source_mtime_ns - 1_000_000_000
+    os.utime(thumb_path, ns=(stale_mtime_ns, stale_mtime_ns))
+
+    second_status = _wait_scan(client, client.post("/scan", json={"roots": [str(images)]}).json()["scan_id"])
+
+    assert second_status["summary"]["analyzed_new"] == 0
+    assert thumb_path.stat().st_mtime_ns > source_mtime_ns
 
 
 def test_scan_groups_again_when_new_file_is_added(tmp_path: Path, monkeypatch) -> None:

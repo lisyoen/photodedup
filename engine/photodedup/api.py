@@ -540,6 +540,7 @@ def _run_scan_job(
             )
         files = list(deduped_files.values())
         rows = []
+        reanalyzed_ids: set[int] = set()
         cache_hits = 0
         analyzed_new = 0
         errors = 0
@@ -561,6 +562,7 @@ def _run_scan_job(
                     q_score, sharp = quality_score(path=image.path, width=image.width, height=image.height, size_bytes=image.size_bytes, fmt=image.format)
                     _raise_if_cancelled(job)
                     row = manifest.upsert_image(image, sharpness=sharp, phash=fp.phash, dhash=fp.dhash, quality_score=q_score, histogram=fp.histogram)
+                    reanalyzed_ids.add(row.id)
                 except (OSError, SyntaxError, UnidentifiedImageError) as exc:
                     errors += 1
                     job.set_progress(index, total, "scanning", cache_hits=cache_hits, analyzed_new=analyzed_new)
@@ -569,12 +571,19 @@ def _run_scan_job(
             job.set_progress(index, total, "scanning", cache_hits=cache_hits, analyzed_new=analyzed_new)
         for index, row in enumerate(rows, start=1):
             _raise_if_cancelled(job)
-            if not row.thumb_path or not Path(row.thumb_path).exists():
-                try:
+            try:
+                thumb_path = Path(row.thumb_path) if row.thumb_path else None
+                regenerate_thumb = (
+                    thumb_path is None
+                    or not thumb_path.exists()
+                    or row.id in reanalyzed_ids
+                    or thumb_path.stat().st_mtime < Path(row.path).stat().st_mtime
+                )
+                if regenerate_thumb:
                     _raise_if_cancelled(job)
                     manifest.set_thumb(row.id, make_thumbnail(row.path, thumbs_dir, row.id))
-                except Exception:
-                    pass
+            except Exception as exc:
+                print(f"thumbnail regeneration failed image_id={row.id} path={row.path}: {exc}", file=sys.stderr, flush=True)
             job.set_progress(index, len(rows), "thumbnails", cache_hits=cache_hits, analyzed_new=analyzed_new)
         _raise_if_cancelled(job)
         scanned_image_ids = [row.id for row in rows]

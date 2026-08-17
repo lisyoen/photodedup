@@ -34,6 +34,7 @@ https://github.com/lisyoen/photodedup/releases
 
 | Version | Date | Summary |
 |---------|------|---------|
+| v0.1.14 | 2026-08-17 | Outdated thumbnails now refresh automatically on rescan when photo files change on disk, keeping displayed previews consistent with duplicate grouping results. |
 | v0.1.13 | 2026-08-17 | Strengthened photo cleanup safety with recoverable quarantine moves, startup recovery for interrupted operations, protected storage for quarantined files, and corrected toast expiry after the app resumes. |
 | v0.1.12 | 2026-07-25 | Fixed completed groups reappearing after restart by overlaying the current completion state and photo marks onto the startup snapshot immediately before it is returned. |
 | v0.1.11 | 2026-07-25 | Fixed stale startup groups briefly appearing before refresh, clarified loading while current groups load, and refreshed the startup snapshot after cleanup. |
