@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -13,6 +14,7 @@ HASH_BITS = 64
 PHASH_WEIGHT = 0.40
 DHASH_WEIGHT = 0.35
 HISTOGRAM_WEIGHT = 0.25
+MAX_GROUP_SIMILARITY_PAIRS = 200
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,24 @@ def _score_meets_threshold(left: GroupableImage, right: GroupableImage, threshol
     if _score_upper_bound(left, right) < threshold:
         return False
     return _score(left, right) >= threshold
+
+
+def group_similarity(images: list[GroupableImage], max_pairs: int = MAX_GROUP_SIMILARITY_PAIRS) -> float:
+    """Return the pairwise similarity mean, sampling at most ``max_pairs`` pairs."""
+    if len(images) < 2:
+        raise ValueError("group similarity requires at least two images")
+    pair_count = len(images) * (len(images) - 1) // 2
+    if pair_count <= max_pairs:
+        pairs = [(left, right) for left in range(len(images)) for right in range(left + 1, len(images))]
+    else:
+        rng = random.Random(tuple(image.id for image in images).__repr__())
+        sampled: set[tuple[int, int]] = set()
+        while len(sampled) < max_pairs:
+            left, right = sorted(rng.sample(range(len(images)), 2))
+            sampled.add((left, right))
+        pairs = sorted(sampled)
+    mean = sum(_score(images[left], images[right]) for left, right in pairs) / len(pairs)
+    return round(mean, 1)
 
 
 def threshold_to_max_distance(threshold: int) -> int:

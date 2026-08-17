@@ -9,7 +9,7 @@ from pathlib import Path
 import sqlite3
 from typing import Callable
 
-from .grouping import GroupableImage, group_images
+from .grouping import GroupableImage, group_images, group_similarity
 from .quality import choose_keep
 from .scanner import ImageFile, _mtime_iso, taken_at_for_path
 
@@ -81,6 +81,7 @@ class Manifest:
                 keep_image_id INT,
                 reclaimable_bytes INT,
                 threshold INT,
+                similarity REAL,
                 created_at TEXT
             );
             CREATE TABLE IF NOT EXISTS scan_meta(
@@ -129,6 +130,8 @@ class Manifest:
             self.conn.execute("ALTER TABLE groups ADD COLUMN keep_all INT DEFAULT 0")
         if "resolved_at" not in group_columns:
             self.conn.execute("ALTER TABLE groups ADD COLUMN resolved_at TEXT")
+        if "similarity" not in group_columns:
+            self.conn.execute("ALTER TABLE groups ADD COLUMN similarity REAL")
         self._ensure_resolved_group_rows()
         self.backfill_quarantined_resolved_at()
         self.backfill_keep_all_is_keep()
@@ -477,13 +480,14 @@ class Manifest:
                 )
             }
             reclaimable = sum(size for image_id, size in sizes.items() if image_id != keep_id)
+            similarity = self.group_similarity_for_members(members)
             resolved_at = self.evaluated_at_for_group_members(members)
             self.conn.execute(
                 """
-                INSERT INTO groups(group_id, member_count, keep_image_id, reclaimable_bytes, threshold, created_at, resolved_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO groups(group_id, member_count, keep_image_id, reclaimable_bytes, threshold, similarity, created_at, resolved_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (group_id, len(members), keep_id, reclaimable, threshold, now, resolved_at),
+                (group_id, len(members), keep_id, reclaimable, threshold, similarity, now, resolved_at),
             )
             for image_id in members:
                 self.conn.execute(
@@ -495,6 +499,32 @@ class Manifest:
             (now,),
         )
         self.conn.commit()
+
+    def group_similarity_for_members(self, member_ids: list[int]) -> float:
+        placeholders = ",".join("?" for _ in member_ids)
+        rows = self.conn.execute(
+            f"""
+            SELECT i.id, i.phash, i.dhash, i.quality_score, h.histogram
+            FROM images i
+            JOIN image_histograms h ON h.image_id = i.id
+            WHERE i.id IN ({placeholders})
+            ORDER BY i.id
+            """,
+            tuple(member_ids),
+        ).fetchall()
+        if len(rows) != len(member_ids):
+            raise ValueError("group members must have complete fingerprints")
+        images = [
+            GroupableImage(
+                id=int(row["id"]),
+                phash=str(row["phash"]),
+                dhash=str(row["dhash"]),
+                histogram=json.loads(row["histogram"]),
+                quality_score=float(row["quality_score"] or 0.0),
+            )
+            for row in rows
+        ]
+        return group_similarity(images)
 
     def regroup(
         self,

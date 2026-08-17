@@ -727,13 +727,14 @@ def _replace_groups_for_scanned_images(
             )
         }
         reclaimable = sum(size for image_id, size in sizes.items() if image_id != keep_id)
+        similarity = manifest.group_similarity_for_members(members)
         resolved_at = manifest.evaluated_at_for_group_members(members)
         manifest.conn.execute(
             """
-            INSERT INTO groups(group_id, member_count, keep_image_id, reclaimable_bytes, threshold, created_at, resolved_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO groups(group_id, member_count, keep_image_id, reclaimable_bytes, threshold, similarity, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (group_id, len(members), keep_id, reclaimable, threshold, now, resolved_at),
+            (group_id, len(members), keep_id, reclaimable, threshold, similarity, now, resolved_at),
         )
         for image_id in members:
             manifest.conn.execute(
@@ -876,7 +877,7 @@ def _list_groups(manifest: Manifest, limit: int, offset: int, sort: str, status:
         "created_at": "g.created_at DESC",
         "group_size": "g.member_count DESC",
         "reclaimable_bytes": "g.reclaimable_bytes DESC",
-        "similarity": "g.threshold DESC",
+        "similarity": "COALESCE(g.similarity, g.threshold) DESC",
         "quality": "MAX(COALESCE(i.quality_score, 0)) DESC",
     }.get(sort, "g.reclaimable_bytes DESC")
     where, params = _group_list_filters(status, min_size, max_size, min_similarity)
@@ -943,7 +944,7 @@ def _group_list_filters(status: str, min_size: int | None, max_size: int | None,
         where.append("g.member_count <= ?")
         params.append(max_size)
     if min_similarity is not None:
-        where.append("g.threshold >= ?")
+        where.append("COALESCE(g.similarity, g.threshold) >= ?")
         params.append(min_similarity)
     return where, params
 
@@ -1227,7 +1228,11 @@ def _group_payload_from_marks(row, image_marks: list[tuple[int, str]], completed
         "member_count": int(row["member_count"] or 0),
         "recommended_keep_image_id": int(row["keep_image_id"]) if row["keep_image_id"] is not None else None,
         "selection_state": state,
-        "max_similarity": float(row["threshold"]) if row["threshold"] is not None else None,
+        "max_similarity": (
+            float(row["similarity"])
+            if row["similarity"] is not None
+            else (float(row["threshold"]) if row["threshold"] is not None else None)
+        ),
         "reclaimable_bytes": int(row["reclaimable_bytes"] or 0),
         "thumbnail_image_id": int(row["thumbnail_image_id"]) if row["thumbnail_image_id"] is not None else None,
         "cover_image_id": int(row["thumbnail_image_id"]) if row["thumbnail_image_id"] is not None else None,

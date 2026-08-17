@@ -1770,6 +1770,27 @@ def test_regroup_persists_previously_evaluated_same_members_as_resolved(tmp_path
     assert [group["id"] for group in all_groups.json()["items"]] == [group["group_id"]]
 
 
+def test_regroup_stores_actual_pair_similarity_independent_of_threshold(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    manifest = Manifest(data_dir / "manifest.db")
+    try:
+        _insert_hashed_images(manifest, tmp_path, [1, 2], group_id=None)
+        manifest.conn.commit()
+
+        manifest.regroup(70)
+
+        group = manifest.conn.execute("SELECT threshold, similarity FROM groups").fetchone()
+        assert group["threshold"] == 70
+        assert group["similarity"] >= 99.0
+        assert group["similarity"] != group["threshold"]
+        assert manifest.conn.execute("SELECT value FROM scan_meta WHERE key = 'threshold'").fetchone()[0] == "70"
+    finally:
+        manifest.close()
+
+    payload = _client(data_dir).get("/groups", params={"status": "all"}).json()["items"][0]
+    assert payload["max_similarity"] >= 99.0
+
+
 def test_api_scan_persists_evaluated_groups_as_resolved_rows(tmp_path: Path, monkeypatch) -> None:
     data_dir = tmp_path / "data"
     db_path = data_dir / "manifest.db"
